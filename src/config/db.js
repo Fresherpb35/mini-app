@@ -16,23 +16,21 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 
 const connectDB = async () => {
   try {
-    // Test the connection
-    const { data, error } = await supabase
-      .from('apps')
-      .select('*')
-      .limit(1);
-      
+    // Test the connection by making a simple query
+    const { data, error } = await supabase.from('users').select('count').single();
+    
     if (error) {
-      console.error('Supabase connection error:', error.message);
+      console.error('Database connection failed:', error.message);
       process.exit(1);
     }
+    
+    console.log('Supabase connected successfully');
     
     // Ensure storage buckets exist
     await ensureStorageBuckets();
     
-    console.log('Supabase connected successfully');
   } catch (error) {
-    console.error('Error connecting to Supabase:', error.message);
+    console.error('Database connection error:', error);
     process.exit(1);
   }
 };
@@ -75,18 +73,25 @@ const ensureStorageBuckets = async () => {
     }
     
     // Check for other required buckets
-    const requiredBuckets = ['app_icons', 'app_screenshots'];
+    const requiredBuckets = ['app_icons', 'app_screenshots', 'avatars'];
     
     for (const bucketName of requiredBuckets) {
       const bucketExists = buckets.some(bucket => bucket.name === bucketName);
       
       if (!bucketExists) {
         console.log(`Creating ${bucketName} storage bucket...`);
-        const { error: createError } = await supabase.storage.createBucket(bucketName, {
+        let bucketConfig = {
           public: true,
           allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
           fileSizeLimit: 10485760 // 10MB
-        });
+        };
+        
+        // Special configuration for avatars bucket
+        if (bucketName === 'avatars') {
+          bucketConfig.fileSizeLimit = 5242880; // 5MB for avatars
+        }
+        
+        const { error: createError } = await supabase.storage.createBucket(bucketName, bucketConfig);
         
         if (createError) {
           console.error(`Error creating ${bucketName} bucket:`, createError);

@@ -170,11 +170,26 @@ const validateFileSize = (maxSizeInBytes) => {
   };
 };
 
-// Export the main multer instance with all its methods
-const uploadMiddleware = upload;
+// Avatar upload middleware (single image file, 5MB max)
+const uploadAvatar = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    // Allowed image types for avatar
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new ErrorResponse('Invalid file type. Only JPEG, PNG, and WebP images are allowed for avatars.', 400), false);
+    }
+  }
+});
 
-// Attach our custom methods to the exported object
-Object.assign(uploadMiddleware, {
+// Export all upload middleware
+const uploadMiddleware = {
   single: upload.single.bind(upload),
   array: upload.array.bind(upload),
   fields: upload.fields.bind(upload),
@@ -183,6 +198,7 @@ Object.assign(uploadMiddleware, {
   uploadMultiple,
   validateFileType,
   validateFileSize,
-});
+  uploadAvatar: uploadAvatar.single.bind(uploadAvatar),
+};
 
 module.exports = uploadMiddleware;

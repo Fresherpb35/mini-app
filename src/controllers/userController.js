@@ -6,35 +6,101 @@ const { ErrorResponse } = require('../middleware/errorMiddleware');
 // @access  Private
 exports.getUserDownloads = async (req, res, next) => {
   try {
-    const { data: downloads, error } = await supabase
+    const userId = req.user.id;
+    console.log(`Fetching downloads for user: ${userId}`);
+
+    // Get the user's downloads
+    const { data: downloads, error: downloadsError } = await supabase
       .from('downloads')
       .select(`
-        *,
-        app:apps (
-          id,
-          name,
-          version,
-          icon_url,
-          package_name,
-          file_size,
-          status,
-          developer:users (id, name)
-        )
+        id,
+        app_id,
+        downloaded_at,
+        version_downloaded
       `)
-      .eq('user_id', req.user.id)
+      .eq('user_id', userId)
       .order('downloaded_at', { ascending: false });
 
-    if (error) {
-      return next(new ErrorResponse('Error fetching user downloads', 500));
+    if (downloadsError) {
+      console.error('Error fetching downloads:', downloadsError);
+      return next(new ErrorResponse('Error fetching downloads', 500));
     }
+
+    if (!downloads || downloads.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    console.log(`Found ${downloads.length} download records`);
+    const appIds = downloads.map(d => d.app_id);
+    console.log('Fetching details for app IDs:', appIds);
+
+    // Get app details for each download
+    const { data: apps, error: appsError } = await supabase
+      .from('apps')
+      .select('*')
+      .in('id', appIds);
+
+    if (appsError) {
+      console.error('Error fetching app details:', appsError);
+      return next(new ErrorResponse('Error fetching app details', 500));
+    }
+
+    // Create a map of app_id to app details
+    const appMap = apps.reduce((acc, app) => ({
+      ...acc,
+      [app.id]: app
+    }), {});
+
+    // Fetch developer details for each app
+    const downloadsWithDetails = await Promise.all(
+      downloads.map(async download => {
+        const app = appMap[download.app_id];
+        let developer = null;
+
+        if (app && app.developer_id) {
+          const { data: devData, error: devError } = await supabase
+            .from('users')
+            .select('id, name, avatar_url')
+            .eq('id', app.developer_id)
+            .single();
+
+          if (!devError) {
+            developer = devData;
+          } else {
+            console.error(`Error fetching developer ${app.developer_id}:`, devError);
+          }
+        }
+
+        return {
+          id: download.id,
+          downloaded_at: download.downloaded_at,
+          version_downloaded: download.version_downloaded,
+          app: app ? {
+            id: app.id,
+            name: app.name,
+            version: app.version,
+            icon_url: app.icon_url,
+            package_name: app.package_name,
+            file_size: app.file_size,
+            status: app.status,
+            developer
+          } : null
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
-      count: downloads.length,
-      data: downloads,
+      count: downloadsWithDetails.length,
+      data: downloadsWithDetails
     });
   } catch (error) {
-    next(error);
+    console.error('Unexpected error in getUserDownloads:', error);
+    next(new ErrorResponse('Server error', 500));
   }
 };
 
@@ -48,7 +114,7 @@ exports.checkAppUpdates = async (req, res, next) => {
       .from('downloads')
       .select(`
         *,
-        app:apps (id, name, version, package_name, icon_url, updated_at)
+        app:app_id (id, name, version, package_name, icon_url, updated_at)
       `)
       .eq('user_id', req.user.id);
 
@@ -198,6 +264,18 @@ exports.uninstallApp = async (req, res, next) => {
 // @access  Private
 exports.getUserProfile = async (req, res, next) => {
   try {
+    // Get user details from users table
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, name, email, avatar_url, role')
+      .eq('id', req.user.id)
+      .single();
+
+    if (userError || !user) {
+      console.error('Error fetching user details:', userError);
+      return next(new ErrorResponse('Error fetching user profile', 500));
+    }
+
     // Get download count
     const { count: downloadCount, error: downloadError } = await supabase
       .from('downloads')
@@ -237,10 +315,11 @@ exports.getUserProfile = async (req, res, next) => {
       success: true,
       data: {
         user: {
-          id: req.user.id,
-          email: req.user.email,
-          name: req.user.user_metadata?.name,
-          role: req.user.user_metadata?.role || 'user',
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar_url: user.avatar_url,
+          role: user.role || 'user',
         },
         stats: {
           downloads: downloadCount || 0,

@@ -73,29 +73,60 @@ exports.getApps = async (req, res, next) => {
 // @access  Public
 exports.getApp = async (req, res, next) => {
   try {
-    const { data: app, error } = await supabase
+    // First get the app
+    const { data: app, error: appError } = await supabase
       .from('apps')
-      .select(`
-        *,
-        developer:users (id, name, email, avatar_url)
-      `)
+      .select('*')
       .eq('id', req.params.id)
-      .eq('status', 'published')
       .single();
 
-    if (error || !app) {
+    if (appError || !app) {
+      console.error('App not found:', appError);
       return next(new ErrorResponse(`App not found with id of ${req.params.id}`, 404));
     }
 
-    // Increment view count
-    await supabase
+    // Check if app is published
+    if (app.status !== 'published') {
+      return next(new ErrorResponse(
+        `App with id ${req.params.id} exists but is not published. Current status: ${app.status}`,
+        403
+      ));
+    }
+
+    let developer = null;
+    // Only try to fetch developer if developer_id exists
+    if (app.developer_id) {
+      const { data: devData, error: devError } = await supabase
+        .from('users')
+        .select('id, name, email, avatar_url')
+        .eq('id', app.developer_id)
+        .single();
+
+      if (!devError) {
+        developer = devData;
+      } else {
+        console.error('Error fetching developer:', devError);
+      }
+    }
+
+    // Increment view count (non-blocking)
+    supabase
       .from('apps')
       .update({ views: (app.views || 0) + 1 })
-      .eq('id', req.params.id);
+      .eq('id', req.params.id)
+      .then(({ error: updateError }) => {
+        if (updateError) {
+          console.error('Error updating view count:', updateError);
+        }
+      })
+      .catch(console.error);
 
     res.status(200).json({
       success: true,
-      data: app,
+      data: {
+        ...app,
+        developer: developer || null
+      },
     });
   } catch (error) {
     next(error);
@@ -135,6 +166,7 @@ exports.downloadApp = async (req, res, next) => {
             app_id: req.params.id,
             user_id: req.user.id,
             downloaded_at: new Date().toISOString(),
+            version_downloaded: app.version
           },
         ]);
 
@@ -239,23 +271,51 @@ exports.getAppReviews = async (req, res, next) => {
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
 
-    // Get reviews with user details
+    // First, get the reviews
     const { data: reviews, error, count } = await supabase
       .from('reviews')
-      .select(
-        `
-        *,
-        user:users (id, name, avatar_url)
-      `,
-        { count: 'exact' }
-      )
+      .select('*', { count: 'exact' })
       .eq('app_id', req.params.id)
       .order('created_at', { ascending: false })
       .range(startIndex, endIndex - 1);
 
     if (error) {
+      console.error('Error fetching reviews:', error);
       return next(new ErrorResponse('Error fetching reviews', 500));
     }
+
+    // If no reviews found, return empty array
+    if (!reviews || reviews.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: [],
+        pagination: {}
+      });
+    }
+
+    // Get user details for each review
+    const reviewsWithUsers = await Promise.all(reviews.map(async (review) => {
+      let user = null;
+      if (review.user_id) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id, name, avatar_url')
+          .eq('id', review.user_id)
+          .single();
+        
+        if (!userError) {
+          user = userData;
+        } else {
+          console.error('Error fetching user:', userError);
+        }
+      }
+      
+      return {
+        ...review,
+        user: user || null
+      };
+    }));
 
     // Pagination result
     const pagination = {};
@@ -277,14 +337,14 @@ exports.getAppReviews = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: reviews.length,
+      count: reviewsWithUsers.length,
+      total: count,
       pagination: {
         ...pagination,
-        total: count,
         totalPages,
         currentPage: page,
       },
-      data: reviews,
+      data: reviewsWithUsers,
     });
   } catch (error) {
     next(error);

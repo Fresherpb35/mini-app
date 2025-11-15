@@ -1,12 +1,28 @@
 const { ErrorResponse } = require('../middleware/errorMiddleware');
 const { supabase } = require('../config/db');
+const { createClient } = require('@supabase/supabase-js');
+
+// Helper function to get admin client
+const getAdminClient = () => {
+  return createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    }
+  );
+};
 
 // @desc    Get all users
 // @route   GET /api/admin/users
 // @access  Private/Admin
 exports.getUsers = async (req, res, next) => {
   try {
-    const { data: users, error } = await supabase
+    const adminClient = getAdminClient();
+    const { data: users, error } = await adminClient
       .from('users')
       .select('*');
 
@@ -27,11 +43,12 @@ exports.getUsers = async (req, res, next) => {
 // @access  Private/Admin
 exports.getUser = async (req, res, next) => {
   try {
-    const { data: user, error } = await supabase
+    const adminClient = getAdminClient();
+    const { data: user, error } = await adminClient
       .from('users')
       .select('*')
       .eq('id', req.params.id)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     if (!user) {
@@ -52,20 +69,55 @@ exports.getUser = async (req, res, next) => {
 // @access  Private/Admin
 exports.createUser = async (req, res, next) => {
   try {
-    const { email, password, name, role } = req.body;
+    const { email, password, name, role = 'user', phone } = req.body;
 
-    const { data: user, error } = await supabase.auth.admin.createUser({
+    // Create user in Supabase Auth
+    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
+      phone,
       email_confirm: true,
-      user_metadata: { name, role: role || 'user' }
+      user_metadata: { name, role }
     });
 
-    if (error) throw error;
+    if (authError) throw authError;
+
+    // Create user in users table using admin client
+    const adminClient = getAdminClient();
+    const { data: dbUser, error: dbError } = await adminClient
+      .from('users')
+      .insert([
+        {
+          id: authUser.user.id,
+          email: authUser.user.email,
+          phone: authUser.user.phone,
+          name,
+          role,
+          email_confirmed: !!authUser.user.email_confirmed_at,
+          phone_confirmed: !!authUser.user.phone_confirmed_at,
+          created_at: authUser.user.created_at,
+          updated_at: new Date().toISOString()
+        }
+      ])
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('Error creating user in users table:', dbError);
+      // Don't fail the response, but log the error
+    }
 
     res.status(201).json({
       success: true,
-      data: user
+      data: dbUser || {
+        id: authUser.user.id,
+        email: authUser.user.email,
+        phone: authUser.user.phone,
+        name,
+        role,
+        email_confirmed: !!authUser.user.email_confirmed_at,
+        phone_confirmed: !!authUser.user.phone_confirmed_at
+      }
     });
   } catch (error) {
     next(error);
@@ -77,22 +129,53 @@ exports.createUser = async (req, res, next) => {
 // @access  Private/Admin
 exports.updateUser = async (req, res, next) => {
   try {
-    const { name, role, status } = req.body;
-    const { data: user, error } = await supabase
+    const { name, email, phone, role, status, bio } = req.body;
+    const userId = req.params.id;
+
+    // Update user in users table
+    const updateData = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (phone) updateData.phone = phone;
+    if (role) updateData.role = role;
+    if (status !== undefined) updateData.status = status;
+    if (bio !== undefined) updateData.bio = bio;
+
+    const adminClient = getAdminClient();
+    const { data: dbUser, error: dbError } = await adminClient
       .from('users')
-      .update({ name, role, status, updated_at: new Date() })
-      .eq('id', req.params.id)
+      .update(updateData)
+      .eq('id', userId)
       .select()
       .single();
 
-    if (error) throw error;
-    if (!user) {
-      return next(new ErrorResponse(`User not found with id of ${req.params.id}`, 404));
+    if (dbError) throw dbError;
+    if (!dbUser) {
+      return next(new ErrorResponse(`User not found with id of ${userId}`, 404));
+    }
+
+    // Also update Supabase Auth metadata if needed
+    if (email || name) {
+      const { error: authError } = await supabase.auth.admin.updateUserById(
+        userId,
+        {
+          email: email || undefined,
+          raw_user_metadata: name ? { name } : undefined
+        }
+      );
+
+      if (authError) {
+        console.error('Error updating auth user:', authError);
+        // Don't fail the response, but log the error
+      }
     }
 
     res.status(200).json({
       success: true,
-      data: user
+      data: dbUser
     });
   } catch (error) {
     next(error);
@@ -104,15 +187,24 @@ exports.updateUser = async (req, res, next) => {
 // @access  Private/Admin
 exports.deleteUser = async (req, res, next) => {
   try {
-    const { error: deleteError } = await supabase
+    const userId = req.params.id;
+    
+    // First delete from users table
+    const adminClient = getAdminClient();
+    const { error: deleteError } = await adminClient
       .from('users')
       .delete()
-      .eq('id', req.params.id);
+      .eq('id', userId);
 
     if (deleteError) throw deleteError;
 
-    // Also delete from auth.users if needed
-    await supabase.auth.admin.deleteUser(req.params.id);
+    // Also delete from Supabase Auth
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+    
+    if (authDeleteError) {
+      console.error('Error deleting user from auth:', authDeleteError);
+      // Don't fail the response if auth deletion fails, but log the error
+    }
 
     res.status(200).json({
       success: true,
@@ -130,9 +222,10 @@ exports.updateUserStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
     
-    const { data: user, error } = await supabase
+    const adminClient = getAdminClient();
+    const { data: user, error } = await adminClient
       .from('users')
-      .update({ status, updated_at: new Date() })
+      .update({ status, updated_at: new Date().toISOString() })
       .eq('id', req.params.id)
       .select()
       .single();
@@ -156,17 +249,52 @@ exports.updateUserStatus = async (req, res, next) => {
 // @access  Private/Admin
 exports.getPendingApps = async (req, res, next) => {
   try {
-    const { data: apps, error } = await supabase
+    const adminClient = getAdminClient();
+    
+    // First get all pending apps
+    const { data: pendingApps, error: appsError } = await adminClient
       .from('apps')
-      .select('*, developer:users(*)')
+      .select('*')
       .eq('status', 'pending');
 
-    if (error) throw error;
+    if (appsError) throw appsError;
+
+    // If no apps found, return empty array
+    if (!pendingApps || pendingApps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Get all developer IDs from the pending apps
+    const developerIds = [...new Set(pendingApps.map(app => app.developer_id))];
+
+    // Get developer details for these apps
+    const { data: developers, error: devError } = await adminClient
+      .from('users')
+      .select('id, name, email, avatar_url')
+      .in('id', developerIds);
+
+    if (devError) throw devError;
+
+    // Create a map of developer_id to developer details
+    const developerMap = developers.reduce((acc, dev) => {
+      acc[dev.id] = dev;
+      return acc;
+    }, {});
+
+    // Combine app data with developer details
+    const appsWithDevelopers = pendingApps.map(app => ({
+      ...app,
+      developer: developerMap[app.developer_id] || null
+    }));
 
     res.status(200).json({
       success: true,
-      count: apps.length,
-      data: apps
+      count: appsWithDevelopers.length,
+      data: appsWithDevelopers
     });
   } catch (error) {
     next(error);
@@ -303,11 +431,11 @@ exports.getCategories = async (req, res, next) => {
 // @access  Private/Admin
 exports.createCategory = async (req, res, next) => {
   try {
-    const { name, description, icon } = req.body;
+    const { name, description, icon_url } = req.body;
     
     const { data: category, error } = await supabase
       .from('categories')
-      .insert([{ name, description, icon }])
+      .insert([{ name, description, icon_url }])
       .select()
       .single();
 
@@ -327,11 +455,11 @@ exports.createCategory = async (req, res, next) => {
 // @access  Private/Admin
 exports.updateCategory = async (req, res, next) => {
   try {
-    const { name, description, icon } = req.body;
+    const { name, description, icon_url } = req.body;
     
     const { data: category, error } = await supabase
       .from('categories')
-      .update({ name, description, icon, updated_at: new Date() })
+      .update({ name, description, icon_url, updated_at: new Date() })
       .eq('id', req.params.id)
       .select()
       .single();

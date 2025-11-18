@@ -5,7 +5,6 @@ const helmet = require('helmet');
 const compression = require('compression');
 const { errorHandler } = require('./middleware/errorMiddleware');
 
-// Import routes
 const authRoutes = require('./routes/authRoutes');
 const appRoutes = require('./routes/appRoutes');
 const developerRoutes = require('./routes/developerRoutes');
@@ -13,10 +12,10 @@ const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 
-// Initialize Express app
+
 const app = express();
 
-// Middleware
+// Middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());

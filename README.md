@@ -65,6 +65,13 @@ JWT_SECRET=your_jwt_secret_key
 JWT_EXPIRE=30d
 JWT_COOKIE_EXPIRE=30
 
+# Frontend URLs (used for auth redirects)
+WEB_APP_URL=http://localhost:3000
+EMAIL_CONFIRM_REDIRECT_URL=http://localhost:3000/auth/confirm
+RESET_PASSWORD_REDIRECT_URL=http://localhost:3000/auth/reset-password
+GOOGLE_OAUTH_REDIRECT_URL=http://localhost:3000/auth/callback
+OTP_LOGIN_REDIRECT_URL=http://localhost:3000/auth/callback
+
 # File Uploads
 MAX_FILE_UPLOAD=10000000 # 10MB
 FILE_UPLOAD_PATH=./public/uploads
@@ -125,8 +132,13 @@ Visit `http://localhost:5000/api-docs` to view the interactive API documentation
 - `PUT /api/auth/updatedetails` - Update user details
 - `PUT /api/auth/updatepassword` - Update password
 - `POST /api/auth/forgotpassword` - Forgot password
-- `PUT /api/auth/resetpassword/:resettoken` - Reset password
-- `GET /api/auth/logout` - Logout user
+- `PUT /api/auth/resetpassword` - Reset password using Supabase reset tokens
+- `POST /api/auth/logout` - Logout user
+- `GET /api/auth/google` - Initiate Google OAuth login
+- `POST /api/auth/otp/send` - Send OTP to email for login
+- `POST /api/auth/otp/verify` - Verify OTP and login
+- `POST /api/auth/register-phone` - Register with phone number
+- `POST /api/auth/login-phone` - Login with phone number
 
 ### Apps
 
@@ -156,10 +168,18 @@ Visit `http://localhost:5000/api-docs` to view the interactive API documentation
 - `PUT /api/admin/users/:id` - Update user
 - `DELETE /api/admin/users/:id` - Delete user
 - `PUT /api/admin/users/:id/status` - Update user status
+- `GET /api/admin/apps` - Get all apps (any status, with developer info)
 - `GET /api/admin/apps/pending` - Get pending apps
 - `PUT /api/admin/apps/:id/status` - Update app status
 - `GET /api/admin/analytics` - Get platform analytics
 - `GET /api/admin/activities` - Get recent activities
+- `GET /api/admin/categories` - Get all categories
+- `POST /api/admin/categories` - Create category
+- `PUT /api/admin/categories/:id` - Update category
+- `DELETE /api/admin/categories/:id` - Delete category
+- `GET /api/admin/reviews/flagged` - Get flagged reviews
+- `DELETE /api/admin/reviews/:id` - Delete review
+- `GET /api/admin/notifications` - Get admin notifications
 
 ## Database Schema
 
@@ -284,6 +304,11 @@ pm2 delete mini-app-store
 | JWT_SECRET | Secret for JWT | - |
 | JWT_EXPIRE | JWT expiration time | 30d |
 | JWT_COOKIE_EXPIRE | Cookie expiration in days | 30 |
+| WEB_APP_URL | Base URL of the frontend web app | http://localhost:3000 |
+| EMAIL_CONFIRM_REDIRECT_URL | Email confirmation redirect URL | `${WEB_APP_URL}/auth/confirm` |
+| RESET_PASSWORD_REDIRECT_URL | Password reset redirect URL | `${WEB_APP_URL}/auth/reset-password` |
+| GOOGLE_OAUTH_REDIRECT_URL | Google OAuth callback URL | `${WEB_APP_URL}/auth/callback` |
+| OTP_LOGIN_REDIRECT_URL | OTP email login callback URL | `${GOOGLE_OAUTH_REDIRECT_URL}` |
 | MAX_FILE_UPLOAD | Maximum file upload size in bytes | 10000000 (10MB) |
 | FILE_UPLOAD_PATH | Path to store uploaded files | ./public/uploads |
 

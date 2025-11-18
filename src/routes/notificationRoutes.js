@@ -2,22 +2,14 @@ const express = require('express');
 const router = express.Router();
 const {
   sendPushNotification,
-  getUserNotifications,
-  markNotificationAsRead,
-  markAllNotificationsAsRead,
   getNotificationStats,
 } = require('../controllers/notificationController');
 const { protect, authorize } = require('../middleware/auth');
 
-// User notification routes
+// Protect all routes
 router.use(protect);
 
-// User routes
-router.get('/user', getUserNotifications);
-router.put('/user/:id/read', markNotificationAsRead);
-router.put('/user/read-all', markAllNotificationsAsRead);
-
-// Admin routes
+// Admin routes - require admin role
 router.use(authorize('admin'));
 router.post('/push', sendPushNotification);
 router.get('/stats', getNotificationStats);

@@ -169,7 +169,6 @@ exports.updateUser = async (req, res, next) => {
 
       if (authError) {
         console.error('Error updating auth user:', authError);
-        // Don't fail the response, but log the error
       }
     }
 
@@ -188,7 +187,7 @@ exports.updateUser = async (req, res, next) => {
 exports.deleteUser = async (req, res, next) => {
   try {
     const userId = req.params.id;
-    
+
     // First delete from users table
     const adminClient = getAdminClient();
     const { error: deleteError } = await adminClient
@@ -200,10 +199,9 @@ exports.deleteUser = async (req, res, next) => {
 
     // Also delete from Supabase Auth
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-    
+
     if (authDeleteError) {
       console.error('Error deleting user from auth:', authDeleteError);
-      // Don't fail the response if auth deletion fails, but log the error
     }
 
     res.status(200).json({
@@ -221,7 +219,7 @@ exports.deleteUser = async (req, res, next) => {
 exports.updateUserStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
-    
+
     const adminClient = getAdminClient();
     const { data: user, error } = await adminClient
       .from('users')
@@ -250,7 +248,7 @@ exports.updateUserStatus = async (req, res, next) => {
 exports.getPendingApps = async (req, res, next) => {
   try {
     const adminClient = getAdminClient();
-    
+
     // First get all pending apps
     const { data: pendingApps, error: appsError } = await adminClient
       .from('apps')
@@ -301,20 +299,74 @@ exports.getPendingApps = async (req, res, next) => {
   }
 };
 
+// @desc    Get all apps (any status)
+// @route   GET /api/admin/apps
+// @access  Private/Admin
+exports.getAllApps = async (req, res, next) => {
+  try {
+    const adminClient = getAdminClient();
+
+    const { data: apps, error: appsError } = await adminClient
+      .from('apps')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (appsError) throw appsError;
+
+    if (!apps || apps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    const developerIds = [...new Set(apps.map((app) => app.developer_id).filter(Boolean))];
+
+    let developerMap = {};
+    if (developerIds.length > 0) {
+      const { data: developers, error: devError } = await adminClient
+        .from('users')
+        .select('id, name, email, avatar_url')
+        .in('id', developerIds);
+
+      if (devError) throw devError;
+
+      developerMap = developers.reduce((acc, dev) => {
+        acc[dev.id] = dev;
+        return acc;
+      }, {});
+    }
+
+    const appsWithDevelopers = apps.map((app) => ({
+      ...app,
+      developer: developerMap[app.developer_id] || null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: appsWithDevelopers.length,
+      data: appsWithDevelopers,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Update app status
 // @route   PUT /api/admin/apps/:id/status
 // @access  Private/Admin
 exports.updateAppStatus = async (req, res, next) => {
   try {
     const { status, rejectionReason } = req.body;
-    
+
     const { data: app, error } = await supabase
       .from('apps')
-      .update({ 
+      .update({
         status,
         rejection_reason: rejectionReason,
         reviewed_at: new Date(),
-        reviewed_by: req.user.id
+        reviewed_by: req.user.id,
       })
       .eq('id', req.params.id)
       .select()
@@ -327,7 +379,7 @@ exports.updateAppStatus = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: app
+      data: app,
     });
   } catch (error) {
     next(error);
@@ -353,7 +405,7 @@ exports.getPlatformAnalytics = async (req, res, next) => {
     const { data: downloads } = await supabase
       .from('downloads')
       .select('*');
-    
+
     const totalDownloads = downloads ? downloads.length : 0;
 
     // Get recent signups
@@ -432,7 +484,7 @@ exports.getCategories = async (req, res, next) => {
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, description, icon_url } = req.body;
-    
+
     const { data: category, error } = await supabase
       .from('categories')
       .insert([{ name, description, icon_url }])
@@ -456,7 +508,7 @@ exports.createCategory = async (req, res, next) => {
 exports.updateCategory = async (req, res, next) => {
   try {
     const { name, description, icon_url } = req.body;
-    
+
     const { data: category, error } = await supabase
       .from('categories')
       .update({ name, description, icon_url, updated_at: new Date() })
@@ -524,7 +576,7 @@ exports.updateSettings = async (req, res, next) => {
 exports.generateReport = async (req, res, next) => {
   try {
     const { type, startDate, endDate } = req.body;
-    
+
     // This would typically generate a report based on the type and date range
     // For now, we'll return a placeholder
     res.status(200).json({
@@ -536,64 +588,6 @@ exports.generateReport = async (req, res, next) => {
         generatedAt: new Date().toISOString(),
         data: []
       }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Send notification
-// @route   POST /api/admin/notifications
-// @access  Private/Admin
-exports.sendNotification = async (req, res, next) => {
-  try {
-    const { title, message, userId, type } = req.body;
-    
-    // This would typically send a notification to the user
-    // For now, we'll just return a success response
-    res.status(200).json({
-      success: true,
-      data: {
-        id: Date.now(),
-        title,
-        message,
-        userId,
-        type,
-        sentAt: new Date().toISOString()
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get notifications
-// @route   GET /api/admin/notifications
-// @access  Private/Admin
-exports.getNotifications = async (req, res, next) => {
-  try {
-    // This would typically fetch notifications from a database
-    // For now, we'll return some placeholder data
-    res.status(200).json({
-      success: true,
-      data: [
-        {
-          id: 1,
-          title: 'New user registered',
-          message: 'A new user has registered on the platform',
-          type: 'user',
-          read: false,
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 2,
-          title: 'New app submitted',
-          message: 'A new app is pending review',
-          type: 'app',
-          read: true,
-          createdAt: new Date(Date.now() - 3600000).toISOString()
-        }
-      ]
     });
   } catch (error) {
     next(error);
@@ -667,10 +661,10 @@ exports.getFlaggedReviews = async (req, res, next) => {
         'spam', 'fake', 'bot', 'terrible app', 'worst app',
         'don\'t download', 'virus', 'malware', 'scam'
       ];
-      
-      return review.rating === 1 || 
-             suspiciousPatterns.some(pattern => comment.includes(pattern)) ||
-             (comment.length < 10 && review.rating <= 2);
+
+      return review.rating === 1 ||
+        suspiciousPatterns.some(pattern => comment.includes(pattern)) ||
+        (comment.length < 10 && review.rating <= 2);
     });
 
     res.status(200).json({

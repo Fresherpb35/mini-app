@@ -1,5 +1,17 @@
 const { supabase } = require('../config/db');
 const { ErrorResponse } = require('../middleware/errorMiddleware');
+const { createClient } = require('@supabase/supabase-js');
+
+// Frontend redirect URLs (configurable via environment)
+const WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
+const EMAIL_CONFIRM_REDIRECT_URL =
+  process.env.EMAIL_CONFIRM_REDIRECT_URL || `${WEB_APP_URL}/auth/confirm`;
+const RESET_PASSWORD_REDIRECT_URL =
+  process.env.RESET_PASSWORD_REDIRECT_URL || `${WEB_APP_URL}/auth/reset-password`;
+const GOOGLE_OAUTH_REDIRECT_URL =
+  process.env.GOOGLE_OAUTH_REDIRECT_URL || `${WEB_APP_URL}/auth/callback`;
+const OTP_LOGIN_REDIRECT_URL =
+  process.env.OTP_LOGIN_REDIRECT_URL || GOOGLE_OAUTH_REDIRECT_URL;
 
 // @desc    Register user
 // @route   POST /api/auth/register
@@ -33,7 +45,7 @@ exports.register = async (req, res, next) => {
           name,
           role
         },
-        emailRedirectTo: 'http://localhost:3000/auth/confirm'
+        emailRedirectTo: EMAIL_CONFIRM_REDIRECT_URL
       }
     });
 
@@ -357,7 +369,7 @@ exports.forgotPassword = async (req, res, next) => {
 
     // Send password reset email using Supabase Auth
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'http://localhost:3000/auth/reset-password'
+      redirectTo: RESET_PASSWORD_REDIRECT_URL
     });
 
     if (error) {
@@ -427,7 +439,7 @@ exports.googleLogin = async (req, res, next) => {
   try {
     // Get redirect URL from request body/query or use default
     const { redirectTo } = req.body || req.query;
-    const defaultRedirect = 'http://localhost:3000/auth/callback'; 
+    const defaultRedirect = GOOGLE_OAUTH_REDIRECT_URL;
     // Initiate Google OAuth flow
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -453,6 +465,118 @@ exports.googleLogin = async (req, res, next) => {
   }
 };
 
+
+// @desc    Send OTP to email for login
+// @route   POST /api/auth/otp/send
+// @access  Public
+exports.sendOtp = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return next(new ErrorResponse('Please provide an email', 400));
+    }
+
+    // Check if user exists
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, email, name')
+      .eq('email', email)
+      .single();
+
+    if (userError || !user) {
+      return next(new ErrorResponse('No user found with this email', 404));
+    }
+
+    // Send OTP to email using Supabase Auth
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: OTP_LOGIN_REDIRECT_URL,
+      },
+    });
+
+    if (error) {
+      console.error('Error sending OTP:', error);
+      return next(new ErrorResponse('Failed to send OTP', 500));
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP sent to your email',
+    });
+  } catch (error) {
+    console.error('Error in sendOtp:', error);
+    next(error);
+  }
+};
+
+// @desc    Verify OTP and login
+// @route   POST /api/auth/otp/verify
+// @access  Public
+exports.verifyOtp = async (req, res, next) => {
+  try {
+    const { email, token } = req.body;
+
+    if (!email || !token) {
+      return next(new ErrorResponse('Please provide email and OTP token', 400));
+    }
+
+    // Verify the OTP token
+    const { data: { session, error } } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    });
+
+    if (error || !session) {
+      console.error('OTP verification error:', error);
+      return next(new ErrorResponse('Invalid or expired OTP', 401));
+    }
+
+    // Get the user from the users table
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (userError || !user) {
+      return next(new ErrorResponse('User not found', 404));
+    }
+
+    // Generate a new JWT token
+    const { data: { user: authUser, session: newSession }, error: tokenError } = 
+      await supabase.auth.setSession(session);
+
+    if (tokenError || !newSession) {
+      return next(new ErrorResponse('Failed to create session', 500));
+    }
+
+    // Set the session cookie
+    res.cookie('token', newSession.access_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    res.status(200).json({
+      success: true,
+      token: newSession.access_token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar_url: user.avatar_url
+      }
+    });
+  } catch (error) {
+    console.error('Error in verifyOtp:', error);
+    next(error);
+  }
+};
 
 // @desc    Logout user
 // @route   POST /api/auth/logout

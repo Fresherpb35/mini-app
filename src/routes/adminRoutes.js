@@ -12,6 +12,7 @@ const {
   // App Management
   getPendingApps,
   updateAppStatus,
+  getAllApps,
   
   // Platform Analytics
   getPlatformAnalytics,
@@ -29,10 +30,6 @@ const {
   // Reports
   generateReport,
   
-  // Notifications
-  sendNotification,
-  getNotifications,
-  
   // Backup & Restore
   createBackup,
   restoreBackup,
@@ -43,6 +40,7 @@ const {
 } = require('../controllers/adminController');
 
 const { protect, authorize } = require('../middleware/auth');
+const { getNotifications } = require('../controllers/notificationController');
 
 // Protect all routes and ensure user is admin
 router.use(protect);
@@ -61,6 +59,7 @@ router.route('/users/:id')
 router.put('/users/:id/status', updateUserStatus);
 
 // App Management
+router.get('/apps', getAllApps);
 router.get('/apps/pending', getPendingApps);
 router.put('/apps/:id/status', updateAppStatus);
 
@@ -84,9 +83,7 @@ router.put('/settings', updateSettings);
 router.post('/reports', generateReport);
 
 // Notifications
-router.route('/notifications')
-  .get(getNotifications)
-  .post(sendNotification);
+router.get('/notifications', getNotifications)
 
 // Backup & Restore
 router.post('/backup', createBackup);

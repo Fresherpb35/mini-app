@@ -15,6 +15,8 @@ const {
   registerWithPhone,
   loginWithPhone,
   uploadAvatar,
+  sendOtp,
+  verifyOtp,
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 
@@ -48,6 +50,10 @@ router.get('/google', googleLogin); // Also allow GET for easier testing
 // Phone authentication routes
 router.post('/register-phone', registerWithPhone);
 router.post('/login-phone', loginWithPhone);
+
+// OTP Email Authentication
+router.post('/otp/send', sendOtp);
+router.post('/otp/verify', verifyOtp);
 
 // Protected routes
 router.use(protect);

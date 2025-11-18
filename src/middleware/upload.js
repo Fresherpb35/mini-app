@@ -11,7 +11,7 @@ const fileFilter = (req, file, cb) => {
   // Allowed file types
   const allowedFileTypes = {
     'application/vnd.android.package-archive': 'apk',
-    'application/octet-stream': 'apk', // Some APKs might have this MIME type
+    'application/octet-stream': 'apk', 
     'application/x-apk': 'apk', // Alternative APK MIME type
     'image/jpeg': 'jpg',
     'image/jpg': 'jpg',

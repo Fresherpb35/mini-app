@@ -11,6 +11,7 @@ const {
   getAppAnalytics,
   getDeveloperDashboard,
 } = require('../controllers/developerController');
+const { sendAppNotification } = require('../controllers/notificationController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 
@@ -35,5 +36,8 @@ router
 
 // Analytics
 router.get('/analytics/:appId', getAppAnalytics);
+
+// Notifications
+router.post('/apps/:appId/notifications', sendAppNotification);
 
 module.exports = router;

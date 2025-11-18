@@ -175,10 +175,15 @@ exports.downloadApp = async (req, res, next) => {
       }
 
       // Increment download count
-      await supabase
+      const { error: updateError } = await supabase
         .from('apps')
         .update({ downloads: (app.downloads || 0) + 1 })
         .eq('id', req.params.id);
+
+      if (updateError) {
+        console.error('Error updating download count:', updateError);
+        // Don't fail the request if just the counter update fails
+      }
     }
 
     // Generate signed URL for download
@@ -568,6 +573,49 @@ exports.searchApps = async (req, res, next) => {
         currentPage: page,
       },
       data: apps,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Update multiple apps
+// @route   PUT /api/apps/update-multiple
+// @access  Private/Admin
+exports.updateMultipleApps = async (req, res, next) => {
+  try {
+    const { updates } = req.body;
+
+    // Validate input
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return next(new ErrorResponse('Please provide an array of app updates', 400));
+    }
+
+    // Validate each update object
+    for (const update of updates) {
+      if (!update.id) {
+        return next(new ErrorResponse('Each update must include an app ID', 400));
+      }
+      
+      // Remove any restricted fields
+      const { id, ...updateData } = update;
+      
+      // Update the app
+      const { error } = await supabase
+        .from('apps')
+        .update(updateData)
+        .eq('id', id);
+
+      if (error) {
+        console.error(`Error updating app ${id}:`, error);
+        // Continue with other updates even if one fails
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Batch update completed',
+      updatedCount: updates.length
     });
   } catch (error) {
     next(error);

@@ -10,8 +10,9 @@ const {
   getNewReleases,
   getAppsByCategory,
   searchApps,
+  updateMultipleApps,
 } = require('../controllers/appController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 
 // Public routes
 router.get('/', getApps);
@@ -25,7 +26,12 @@ router.get('/:id/reviews', getAppReviews);
 // Protected routes
 router.use(protect);
 
+// Regular user routes
 router.post('/:id/reviews', createAppReview);
 router.get('/:id/download', downloadApp);
+
+// Admin routes
+router.use(authorize('admin'));
+router.put('/update-multiple', updateMultipleApps);
 
 module.exports = router;

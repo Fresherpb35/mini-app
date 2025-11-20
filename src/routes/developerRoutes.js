@@ -24,9 +24,44 @@ router.get('/apps', getDeveloperApps);
 router.get('/dashboard', getDeveloperDashboard);
 
 // File uploads
-router.post('/apps/upload', upload.single('apk'), uploadApp);
-router.put('/apps/:id/icon', upload.single('icon'), uploadAppIcon);
-router.put('/apps/:id/screenshots', upload.array('screenshots', 5), uploadAppScreenshots);
+router.post('/apps/upload', 
+  (req, res, next) => {
+    upload.fields([
+      { name: 'apk', maxCount: 1 },
+      { name: 'app_icon', maxCount: 1 },
+      { name: 'screenshots', maxCount: 5 }
+    ])(req, res, (err) => {
+      if (err) {
+        return next(new ErrorResponse(err.message, 400));
+      }
+      next();
+    });
+  },
+  uploadApp
+);
+
+// Separate routes for individual updates
+router.put('/apps/:id/icon', 
+  upload.single('icon'), 
+  (req, res, next) => {
+    if (!req.file) {
+      return next(new ErrorResponse('Please upload an icon file', 400));
+    }
+    next();
+  },
+  uploadAppIcon
+);
+
+router.put('/apps/:id/screenshots', 
+  upload.array('screenshots', 5), 
+  (req, res, next) => {
+    if (!req.files || req.files.length === 0) {
+      return next(new ErrorResponse('Please upload at least one screenshot', 400));
+    }
+    next();
+  },
+  uploadAppScreenshots
+);
 
 // App management
 router

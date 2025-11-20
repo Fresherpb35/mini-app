@@ -36,14 +36,33 @@ const fileFilter = (req, file, cb) => {
   );
 };
 
-// Configure multer upload
+// Configure multer upload with specific limits for different file types
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB max file size
+    fileSize: 100 * 1024 * 1024, // 100MB max file size for APK
+    files: 7, // Max 7 files (1 APK + 1 icon + 5 screenshots)
   },
 });
+
+// Custom error handler for multer
+const handleMulterErrors = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return next(new ErrorResponse('File too large. Maximum size is 100MB for APK and 5MB for images', 413));
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return next(new ErrorResponse('Too many files uploaded', 413));
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return next(new ErrorResponse('Unexpected file field', 400));
+    }
+  } else if (err) {
+    return next(err);
+  }
+  next();
+};
 
 // Middleware to handle file uploads
 const handleFileUpload = (fieldName, maxCount = 1) => {
@@ -194,10 +213,12 @@ const uploadMiddleware = {
   array: upload.array.bind(upload),
   fields: upload.fields.bind(upload),
   none: upload.none.bind(upload),
+  handleFileUpload,
   uploadSingle,
   uploadMultiple,
   validateFileType,
   validateFileSize,
+  handleMulterErrors,
   uploadAvatar: uploadAvatar.single.bind(uploadAvatar),
 };
 

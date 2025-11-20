@@ -11,6 +11,8 @@ const {
   getAppsByCategory,
   searchApps,
   updateMultipleApps,
+  getFeaturedApps,
+  getCategories,
 } = require('../controllers/appController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -18,6 +20,8 @@ const { protect, authorize } = require('../middleware/auth');
 router.get('/', getApps);
 router.get('/top', getTopRatedApps);
 router.get('/new', getNewReleases);
+router.get('/featured', getFeaturedApps);
+router.get('/categories', getCategories);
 router.get('/category/:category', getAppsByCategory);
 router.get('/search', searchApps);
 router.get('/:id', getApp);

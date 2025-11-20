@@ -14,6 +14,12 @@ const {
   updateAppStatus,
   getAllApps,
   
+  // Featured Apps
+  featureApp,
+  getFeaturedApps,
+  updateFeaturedApp,
+  removeFeaturedApp,
+  
   // Platform Analytics
   getPlatformAnalytics,
   getRecentActivities,
@@ -33,6 +39,7 @@ const {
   // Backup & Restore
   createBackup,
   restoreBackup,
+  listBackups,
   
   // Review Monitoring
   getFlaggedReviews,
@@ -59,9 +66,18 @@ router.route('/users/:id')
 router.put('/users/:id/status', updateUserStatus);
 
 // App Management
-router.get('/apps', getAllApps);
 router.get('/apps/pending', getPendingApps);
+router.get('/apps', getAllApps);
 router.put('/apps/:id/status', updateAppStatus);
+
+// Featured Apps Management
+router.route('/featured-apps')
+  .get(getFeaturedApps)
+  .post(featureApp);
+
+router.route('/featured-apps/:id')
+  .put(updateFeaturedApp)
+  .delete(removeFeaturedApp);
 
 // Platform Analytics
 router.get('/analytics', getPlatformAnalytics);
@@ -88,6 +104,7 @@ router.get('/notifications', getNotifications)
 // Backup & Restore
 router.post('/backup', createBackup);
 router.post('/restore', restoreBackup);
+router.get('/backups', listBackups)
 
 // Review Monitoring
 router.get('/reviews/flagged', getFlaggedReviews);

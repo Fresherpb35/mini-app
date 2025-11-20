@@ -622,6 +622,99 @@ exports.updateMultipleApps = async (req, res, next) => {
   }
 };
 
+// @desc    Get featured apps
+// @route   GET /api/apps/featured
+// @access  Public
+exports.getFeaturedApps = async (req, res, next) => {
+  try {
+    const { feature_type, is_active } = req.query;
+    
+    let query = supabase
+      .from('featured_apps')
+      .select(`
+        *,
+        apps (*)
+      `);
+
+    if (feature_type) query = query.eq('feature_type', feature_type);
+    if (is_active !== undefined) query = query.eq('is_active', is_active === 'true');
+
+    const { data: featuredApps, error } = await query.order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    // If no featured apps found, return empty array
+    if (!featuredApps || featuredApps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Get unique user IDs from created_by
+    const userIds = [...new Set(featuredApps.map(fa => fa.created_by).filter(Boolean))];
+    let users = {};
+
+    // If there are users to fetch, get their details
+    if (userIds.length > 0) {
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('id, username, email')
+        .in('id', userIds);
+
+      if (!usersError && usersData) {
+        // Create a map of user ID to user data for easy lookup
+        users = usersData.reduce((acc, user) => ({
+          ...acc,
+          [user.id]: user
+        }), {});
+      }
+    }
+
+    // Combine the data
+    const featuredAppsWithUsers = featuredApps.map(featured => ({
+      ...featured,
+      created_by_user: users[featured.created_by] || null
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: featuredAppsWithUsers.length,
+      data: featuredAppsWithUsers
+    });
+  } catch (error) {
+    console.error('Error fetching featured apps:', error);
+    next(error);
+  }
+};
+
+
+
+
+// @desc    Get app categories
+// @route   GET /api/apps/categories
+// @access  Public
+exports.getCategories = async (req, res, next) => {
+  try {
+    const { data: categories, error } = await supabase
+      .from('apps')
+      .select('category')
+      .distinct();
+
+    if (error) {
+      return next(new ErrorResponse('Error fetching app categories', 500));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: categories,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Helper function to update app rating
 const updateAppRating = async (appId) => {
   try {

@@ -73,7 +73,7 @@ const ensureStorageBuckets = async () => {
     }
     
     // Check for other required buckets
-    const requiredBuckets = ['app_icons', 'app_screenshots', 'avatars'];
+    const requiredBuckets = ['app_icons', 'app_screenshots', 'avatars', 'backups'];
     
     for (const bucketName of requiredBuckets) {
       const bucketExists = buckets.some(bucket => bucket.name === bucketName);
@@ -86,9 +86,13 @@ const ensureStorageBuckets = async () => {
           fileSizeLimit: 10485760 // 10MB
         };
         
-        // Special configuration for avatars bucket
+        // Special configurations for specific buckets
         if (bucketName === 'avatars') {
           bucketConfig.fileSizeLimit = 5242880; // 5MB for avatars
+        } else if (bucketName === 'backups') {
+          bucketConfig.public = false; // Keep backups private
+          bucketConfig.allowedMimeTypes = ['application/json'];
+          bucketConfig.fileSizeLimit = 10485760; // 10MB for backups (reduced from 100MB)
         }
         
         const { error: createError } = await supabase.storage.createBucket(bucketName, bucketConfig);

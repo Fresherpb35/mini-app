@@ -1,6 +1,7 @@
 const { ErrorResponse } = require('../middleware/errorMiddleware');
 const { supabase } = require('../config/db');
 const { createClient } = require('@supabase/supabase-js');
+const { validationResult } = require('express-validator');
 
 // Helper function to get admin client
 const getAdminClient = () => {
@@ -551,6 +552,197 @@ exports.deleteCategory = async (req, res, next) => {
   }
 };
 
+// @desc    Feature an app
+// @route   POST /api/admin/featured-apps
+// @access  Private/Admin
+exports.featureApp = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { app_id, feature_type = 'homepage', sort_order = 0, start_date, end_date } = req.body;
+    
+    // Check if app exists
+    const { data: app, error: appError } = await supabase
+      .from('apps')
+      .select('id')
+      .eq('id', app_id)
+      .single();
+
+    if (appError || !app) {
+      return next(new ErrorResponse('App not found', 404));
+    }
+
+    // Check for existing feature
+    const { data: existingFeature, error: existingError } = await supabase
+      .from('featured_apps')
+      .select('id')
+      .eq('app_id', app_id)
+      .eq('feature_type', feature_type)
+      .eq('is_active', true);
+
+    if (existingError) throw existingError;
+    if (existingFeature && existingFeature.length > 0) {
+      return next(new ErrorResponse('This app is already featured in this category', 400));
+    }
+
+    // Create new feature
+    const { data: featuredApp, error } = await supabase
+      .from('featured_apps')
+      .insert([{
+        app_id,
+        feature_type,
+        sort_order,
+        start_date: start_date || new Date().toISOString(),
+        end_date: end_date || null,
+        is_active: true,
+        created_by: req.user.id
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      data: featuredApp
+    });
+  } catch (error) {
+    console.error('Error featuring app:', error);
+    next(error);
+  }
+};
+
+// @desc    Get all featured apps (admin view)
+// @route   GET /api/admin/featured-apps
+// @access  Private/Admin
+exports.getFeaturedApps = async (req, res, next) => {
+  try {
+    const { feature_type, is_active } = req.query;
+    
+    // First, get the featured apps with basic app info
+    let query = supabase
+      .from('featured_apps')
+      .select(`
+        *,
+        apps (*)
+      `);
+
+    if (feature_type) query = query.eq('feature_type', feature_type);
+    if (is_active !== undefined) query = query.eq('is_active', is_active === 'true');
+
+    const { data: featuredApps, error } = await query.order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    // If no featured apps found, return empty array
+    if (!featuredApps || featuredApps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Get unique user IDs from created_by
+    const userIds = [...new Set(featuredApps.map(fa => fa.created_by).filter(Boolean))];
+    let users = {};
+
+    // If there are users to fetch, get their details
+    if (userIds.length > 0) {
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('id, username, email')
+        .in('id', userIds);
+
+      if (!usersError && usersData) {
+        // Create a map of user ID to user data for easy lookup
+        users = usersData.reduce((acc, user) => ({
+          ...acc,
+          [user.id]: user
+        }), {});
+      }
+    }
+
+    // Combine the data
+    const featuredAppsWithUsers = featuredApps.map(featured => ({
+      ...featured,
+      created_by_user: users[featured.created_by] || null
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: featuredAppsWithUsers.length,
+      data: featuredAppsWithUsers
+    });
+  } catch (error) {
+    console.error('Error fetching featured apps:', error);
+    next(error);
+  }
+};
+
+// @desc    Update featured app
+// @route   PUT /api/admin/featured-apps/:id
+// @access  Private/Admin
+exports.updateFeaturedApp = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sort_order, is_active, end_date, feature_type } = req.body;
+
+    const updates = {};
+    if (sort_order !== undefined) updates.sort_order = sort_order;
+    if (is_active !== undefined) updates.is_active = is_active;
+    if (end_date !== undefined) updates.end_date = end_date;
+    if (feature_type) updates.feature_type = feature_type;
+
+    const { data: featuredApp, error } = await supabase
+      .from('featured_apps')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!featuredApp) {
+      return next(new ErrorResponse('Featured app not found', 404));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: featuredApp
+    });
+  } catch (error) {
+    console.error('Error updating featured app:', error);
+    next(error);
+  }
+};
+
+// @desc    Remove app from featured
+// @route   DELETE /api/admin/featured-apps/:id
+// @access  Private/Admin
+exports.removeFeaturedApp = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const { error } = await supabase
+      .from('featured_apps')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    res.status(200).json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    console.error('Error removing featured app:', error);
+    next(error);
+  }
+};
+
 // @desc    Update settings
 // @route   PUT /api/admin/settings
 // @access  Private/Admin
@@ -594,24 +786,100 @@ exports.generateReport = async (req, res, next) => {
   }
 };
 
+// @desc    List all backups
+// @route   GET /api/admin/backups
+// @access  Private/Admin
+exports.listBackups = async (req, res, next) => {
+  try {
+    // List all files in the backups bucket
+    const { data: files, error } = await supabase.storage
+      .from('backups')
+      .list('', {
+        sortBy: { column: 'created_at', order: 'desc' },
+      });
+    
+    if (error) throw error;
+
+    // Get public URLs and metadata for each file
+    const backups = await Promise.all(
+      files.map(async (file) => {
+        const { data: { publicUrl } } = supabase.storage
+          .from('backups')
+          .getPublicUrl(file.name);
+        
+        return {
+          id: file.id,
+          name: file.name,
+          size: file.metadata.size,
+          lastModified: file.metadata.lastModified,
+          createdAt: file.created_at,
+          downloadUrl: publicUrl
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      count: backups.length,
+      data: backups
+    });
+  } catch (error) {
+    console.error('Error listing backups:', error);
+    next(new ErrorResponse('Failed to list backups', 500));
+  }
+};
+
 // @desc    Create backup
 // @route   POST /api/admin/backup
 // @access  Private/Admin
 exports.createBackup = async (req, res, next) => {
   try {
-    // This would typically create a database backup
-    // For now, we'll return a success response
+    // Get all tables data
+    const tables = ['apps', 'reviews', 'categories', 'app_analytics', 'downloads', 'featured_apps'];
+    const backupData = {};
+    
+    // Fetch data from each table
+    for (const table of tables) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*');
+      
+      if (error) throw error;
+      backupData[table] = data;
+    }
+    
+    // Create a backup file in Supabase storage
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupFileName = `backup-${timestamp}.json`;
+    
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('backups')
+      .upload(backupFileName, JSON.stringify(backupData, null, 2), {
+        contentType: 'application/json',
+        upsert: false
+      });
+    
+    if (uploadError) throw uploadError;
+    
+    // Get public URL for the backup file
+    const { data: { publicUrl } } = supabase.storage
+      .from('backups')
+      .getPublicUrl(backupFileName);
+    
     res.status(200).json({
       success: true,
       data: {
-        id: `backup-${Date.now()}`,
+        id: backupFileName,
         status: 'completed',
         createdAt: new Date().toISOString(),
-        downloadUrl: '/downloads/backup.sql'
+        downloadUrl: publicUrl,
+        tables: tables,
+        recordCount: Object.values(backupData).reduce((sum, records) => sum + records.length, 0)
       }
     });
   } catch (error) {
-    next(error);
+    console.error('Backup error:', error);
+    next(new ErrorResponse(`Failed to create backup: ${error.message}`, 500));
   }
 };
 
@@ -620,17 +888,66 @@ exports.createBackup = async (req, res, next) => {
 // @access  Private/Admin
 exports.restoreBackup = async (req, res, next) => {
   try {
-    // This would typically restore a database from a backup
-    // For now, we'll return a success response
+    const { backupId } = req.body;
+    
+    if (!backupId) {
+      return next(new ErrorResponse('Backup ID is required', 400));
+    }
+    
+    // Download the backup file
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('backups')
+      .download(backupId);
+    
+    if (downloadError) throw downloadError;
+    
+    // Parse the backup data
+    const backupData = JSON.parse(await fileData.text());
+    const results = {};
+    
+    // Restore each table's data
+    for (const [table, records] of Object.entries(backupData)) {
+      // Delete existing data
+      const { error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .neq('id', ''); // Delete all records
+      
+      if (deleteError) {
+        results[table] = { success: false, error: deleteError.message };
+        continue;
+      }
+      
+      // Insert backup data in chunks to avoid hitting limits
+      const chunkSize = 100;
+      for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+        const { error: insertError } = await supabase
+          .from(table)
+          .insert(chunk);
+        
+        if (insertError) {
+          results[table] = { success: false, error: insertError.message };
+          break;
+        }
+      }
+      
+      if (!results[table]) {
+        results[table] = { success: true, recordsRestored: records.length };
+      }
+    }
+    
     res.status(200).json({
       success: true,
       data: {
         status: 'completed',
-        restoredAt: new Date().toISOString()
+        restoredAt: new Date().toISOString(),
+        results: results
       }
     });
   } catch (error) {
-    next(error);
+    console.error('Restore error:', error);
+    next(new ErrorResponse(`Failed to restore from backup: ${error.message}`, 500));
   }
 };
 
@@ -639,19 +956,44 @@ exports.restoreBackup = async (req, res, next) => {
 // @access  Private/Admin
 exports.getFlaggedReviews = async (req, res, next) => {
   try {
-    // Get reviews that might be abusive (low ratings with short comments, spam patterns)
+    // First, get all reviews with their related data
     const { data: reviews, error } = await supabase
       .from('reviews')
       .select(`
         *,
-        app:apps (id, name, icon_url),
-        user:users (id, name, email)
+        app:apps (id, name, icon_url)
       `)
-      .or('rating.eq.1,comment.ilike.%spam%,comment.ilike.%fake%,comment.ilike.%terrible%')
+      .or('is_flagged.eq.true,rating.eq.1')
       .order('created_at', { ascending: false });
 
+    // Get user data separately since the relationship is with auth.users
+    if (reviews && reviews.length > 0) {
+      const userIds = [...new Set(reviews.map(review => review.user_id))];
+      const { data: usersData } = await supabase.auth.admin.listUsers({
+        page: 1,
+        perPage: 1000
+      });
+      
+      const usersMap = new Map();
+      if (usersData && usersData.users) {
+        usersData.users.forEach(user => {
+          usersMap.set(user.id, {
+            id: user.id,
+            email: user.email,
+            name: user.user_metadata?.full_name || user.email.split('@')[0]
+          });
+        });
+      }
+
+      // Combine the data
+      reviews.forEach(review => {
+        review.user = usersMap.get(review.user_id) || { id: review.user_id };
+      });
+    }
+
     if (error) {
-      return next(new ErrorResponse('Error fetching flagged reviews', 500));
+      console.error('Error fetching flagged reviews:', error);
+      return next(new ErrorResponse('Error fetching flagged reviews: ' + error.message, 500));
     }
 
     // Additional filtering for suspicious patterns

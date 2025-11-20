@@ -14,6 +14,7 @@ const {
 const { sendAppNotification } = require('../controllers/notificationController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
+const { ErrorResponse } = require('../middleware/errorMiddleware');
 
 // Protect all routes
 router.use(protect);

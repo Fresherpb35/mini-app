@@ -340,14 +340,25 @@ exports.updateApp = async (req, res, next) => {
       updated_at: new Date().toISOString()
     };
 
-    // Handle permissions
+    // Handle permissions - support both string and boolean values
     const permissions = existingApp.permissions || {};
-    if (phone_permission !== undefined) permissions.phone = phone_permission === 'true';
-    if (camera_permission !== undefined) permissions.camera = camera_permission === 'true';
-    if (storage_permission !== undefined) permissions.storage = storage_permission === 'true';
-    if (contacts_permission !== undefined) permissions.contacts = contacts_permission === 'true';
-    if (location_permission !== undefined) permissions.location = location_permission === 'true';
-    if (microphone_permission !== undefined) permissions.microphone = microphone_permission === 'true';
+    if (phone_permission !== undefined) permissions.phone = phone_permission === true || phone_permission === 'true';
+    if (camera_permission !== undefined) permissions.camera = camera_permission === true || camera_permission === 'true';
+    if (storage_permission !== undefined) permissions.storage = storage_permission === true || storage_permission === 'true';
+    if (contacts_permission !== undefined) permissions.contacts = contacts_permission === true || contacts_permission === 'true';
+    if (location_permission !== undefined) permissions.location = location_permission === true || location_permission === 'true';
+    if (microphone_permission !== undefined) permissions.microphone = microphone_permission === true || microphone_permission === 'true';
+    
+    console.log('Update - Received permissions:', {
+      phone_permission,
+      camera_permission,
+      storage_permission,
+      contacts_permission,
+      location_permission,
+      microphone_permission,
+      parsed: permissions
+    });
+    
     updateData.permissions = permissions;
 
     // Handle file uploads

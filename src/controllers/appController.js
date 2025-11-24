@@ -698,17 +698,15 @@ exports.getFeaturedApps = async (req, res, next) => {
 exports.getCategories = async (req, res, next) => {
   try {
     const { data: categories, error } = await supabase
-      .from('apps')
-      .select('category')
-      .distinct();
+      .from('categories')
+      .select('*');
 
-    if (error) {
-      return next(new ErrorResponse('Error fetching app categories', 500));
-    }
+    if (error) throw error;
 
     res.status(200).json({
       success: true,
-      data: categories,
+      count: categories.length,
+      data: categories
     });
   } catch (error) {
     next(error);

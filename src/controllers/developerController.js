@@ -651,7 +651,7 @@ exports.uploadAppIcon = async (req, res, next) => {
     // Generate unique file name
     const fileExt = path.extname(req.file.originalname);
     const fileName = `icon_${uuidv4()}${fileExt}`;
-    const filePath = `icons/${req.user.id}/${fileName}`;
+    const filePath = `app_icons/${req.user.id}/${fileName}`;
 
     console.log('Icon upload details:', {
       originalName: req.file.originalname,
@@ -790,7 +790,7 @@ exports.uploadAppScreenshots = async (req, res, next) => {
       // Generate unique file name
       const fileExt = path.extname(file.originalname);
       const fileName = `screenshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}${fileExt}`;
-      const filePath = `screenshots/${req.user.id}/${fileName}`;
+      const filePath = `app_screenshots/${req.user.id}/${fileName}`;
 
       console.log(`Upload details for ${file.originalname}:`, {
         fileSize: file.size,

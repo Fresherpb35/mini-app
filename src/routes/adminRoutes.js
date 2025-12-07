@@ -13,6 +13,7 @@ const {
   getPendingApps,
   updateAppStatus,
   getAllApps,
+  updateApp,
   
   // Featured Apps
   featureApp,
@@ -48,6 +49,8 @@ const {
 
 const { protect, authorize } = require('../middleware/auth');
 const { getNotifications } = require('../controllers/notificationController');
+const upload = require('../middleware/upload');
+const { ErrorResponse } = require('../middleware/errorMiddleware');
 
 // Protect all routes and ensure user is admin
 router.use(protect);
@@ -69,6 +72,21 @@ router.put('/users/:id/status', updateUserStatus);
 router.get('/apps/pending', getPendingApps);
 router.get('/apps', getAllApps);
 router.put('/apps/:id/status', updateAppStatus);
+router.put('/apps/:id', 
+  (req, res, next) => {
+    upload.fields([
+      { name: 'apk', maxCount: 1 },
+      { name: 'app_icon', maxCount: 1 },
+      { name: 'screenshots', maxCount: 5 }
+    ])(req, res, (err) => {
+      if (err) {
+        return next(new ErrorResponse(err.message, 400));
+      }
+      next();
+    });
+  },
+  updateApp
+);
 
 // Featured Apps Management
 router.route('/featured-apps')

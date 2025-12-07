@@ -387,6 +387,218 @@ exports.updateAppStatus = async (req, res, next) => {
   }
 };
 
+// @desc    Update app (admin can edit any app)
+// @route   PUT /api/admin/apps/:id
+// @access  Private/Admin
+exports.updateApp = async (req, res, next) => {
+  try {
+    const path = require('path');
+    const { v4: uuidv4 } = require('uuid');
+
+    // Get app by ID
+    const adminClient = getAdminClient();
+    const { data: existingApp, error: fetchError } = await adminClient
+      .from('apps')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchError || !existingApp) {
+      return next(new ErrorResponse('App not found', 404));
+    }
+
+    // Parse request body
+    const {
+      name,
+      description,
+      short_description,
+      version,
+      mini_android_version,
+      min_sdk_version,
+      target_sdk_version,
+      package_name,
+      category,
+      price = 0,
+      is_premium = 'false',
+      changelog = '',
+      phone_permission,
+      camera_permission,
+      storage_permission,
+      contacts_permission,
+      location_permission,
+      microphone_permission,
+    } = req.body;
+
+    // Build update data
+    const updateData = {
+      name: name || existingApp.name,
+      description: description || existingApp.description,
+      short_description: short_description || existingApp.short_description,
+      version: version || existingApp.version,
+      mini_android_version: mini_android_version || existingApp.mini_android_version,
+      min_sdk_version: min_sdk_version ? parseInt(min_sdk_version) : existingApp.min_sdk_version,
+      target_sdk_version: target_sdk_version ? parseInt(target_sdk_version) : existingApp.target_sdk_version,
+      package_name: package_name || existingApp.package_name,
+      category: category || existingApp.category,
+      price: price ? parseFloat(price) : existingApp.price,
+      is_premium: is_premium === 'true' || is_premium === true,
+      changelog: changelog || existingApp.changelog,
+      updated_at: new Date().toISOString()
+    };
+
+    // Handle permissions
+    const permissions = existingApp.permissions || {};
+    if (phone_permission !== undefined) permissions.phone = phone_permission === true || phone_permission === 'true';
+    if (camera_permission !== undefined) permissions.camera = camera_permission === true || camera_permission === 'true';
+    if (storage_permission !== undefined) permissions.storage = storage_permission === true || storage_permission === 'true';
+    if (contacts_permission !== undefined) permissions.contacts = contacts_permission === true || contacts_permission === 'true';
+    if (location_permission !== undefined) permissions.location = location_permission === true || location_permission === 'true';
+    if (microphone_permission !== undefined) permissions.microphone = microphone_permission === true || microphone_permission === 'true';
+    
+    updateData.permissions = permissions;
+
+    // Handle file uploads
+    const filesToCleanup = [];
+
+    try {
+      // Handle APK update
+      if (req.files && req.files.apk && req.files.apk[0]) {
+        const apkFile = req.files.apk[0];
+        const apkFileName = `${uuidv4()}${path.extname(apkFile.originalname)}`;
+        const apkFilePath = `${existingApp.developer_id}/${apkFileName}`;
+
+        const { error: apkUploadError } = await supabase.storage
+          .from('apps')
+          .upload(apkFilePath, apkFile.buffer, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: apkFile.mimetype,
+          });
+
+        if (apkUploadError) {
+          throw new Error(`Error uploading APK: ${apkUploadError.message}`);
+        }
+
+        const { data: { publicUrl: apkUrl } } = supabase.storage
+          .from('apps')
+          .getPublicUrl(apkFilePath);
+
+        updateData.file_path = apkFilePath;
+        updateData.download_url = apkUrl;
+        updateData.file_size = apkFile.size;
+
+        if (existingApp.file_path) {
+          filesToCleanup.push({ bucket: 'apps', path: existingApp.file_path });
+        }
+      }
+
+      // Handle app icon update
+      if (req.files && req.files.app_icon && req.files.app_icon[0]) {
+        const iconFile = req.files.app_icon[0];
+        const iconFileName = `${uuidv4()}${path.extname(iconFile.originalname)}`;
+        const iconFilePath = `app_icons/${existingApp.developer_id}/${iconFileName}`;
+
+        const { error: iconUploadError } = await supabase.storage
+          .from('app_icons')
+          .upload(iconFilePath, iconFile.buffer, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: iconFile.mimetype,
+          });
+
+        if (iconUploadError) {
+          throw new Error(`Error uploading app icon: ${iconUploadError.message}`);
+        }
+
+        const { data: { publicUrl: iconUrl } } = supabase.storage
+          .from('app_icons')
+          .getPublicUrl(iconFilePath);
+
+        // Only set icon_url, not icon_path (doesn't exist in schema)
+        updateData.icon_url = iconUrl;
+
+        // Clean up OLD icon if it exists (extract path from URL)
+        if (existingApp.icon_url) {
+          try {
+            // Extract the storage path from the public URL
+            // URL format: https://[project].supabase.co/storage/v1/object/public/app_icons/[path]
+            const urlParts = existingApp.icon_url.split('/app_icons/');
+            if (urlParts.length > 1) {
+              const oldIconPath = `app_icons/${urlParts[1]}`;
+              filesToCleanup.push({ bucket: 'app_icons', path: oldIconPath });
+            }
+          } catch (err) {
+            console.error('Error extracting old icon path:', err);
+          }
+        }
+      }
+
+      // Handle screenshots update
+      if (req.files && req.files.screenshots && req.files.screenshots.length > 0) {
+        const screenshotFiles = Array.isArray(req.files.screenshots) 
+          ? req.files.screenshots 
+          : [req.files.screenshots];
+        
+        const screenshotUrls = [];
+        
+        for (const screenshot of screenshotFiles) {
+          const screenshotFileName = `${uuidv4()}${path.extname(screenshot.originalname)}`;
+          const screenshotFilePath = `app_screenshots/${existingApp.developer_id}/${screenshotFileName}`;
+          
+          const { error: screenshotError } = await supabase.storage
+            .from('app_screenshots')
+            .upload(screenshotFilePath, screenshot.buffer, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: screenshot.mimetype,
+            });
+          
+          if (screenshotError) {
+            throw new Error(`Error uploading screenshot: ${screenshotError.message}`);
+          }
+          
+          const { data: { publicUrl: screenshotUrl } } = supabase.storage
+            .from('app_screenshots')
+            .getPublicUrl(screenshotFilePath);
+          
+          screenshotUrls.push(screenshotUrl);
+        }
+
+        // Add new screenshots to existing ones or replace them
+        updateData.screenshots = screenshotUrls;
+      }
+
+      // Update the app in the database
+      const { data: updatedApp, error: updateError } = await adminClient
+        .from('apps')
+        .update(updateData)
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+
+      // Clean up old files after successful update
+      if (filesToCleanup.length > 0) {
+        for (const file of filesToCleanup) {
+          await supabase.storage.from(file.bucket).remove([file.path]);
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        data: updatedApp
+      });
+
+    } catch (fileError) {
+      return next(new ErrorResponse(fileError.message, 500));
+    }
+  } catch (error) {
+    console.error('Error updating app:', error);
+    next(error);
+  }
+};
+
 // @desc    Get platform analytics
 // @route   GET /api/admin/analytics
 // @access  Private/Admin

@@ -181,7 +181,8 @@ exports.uploadApp = async (req, res, next) => {
       ? req.files.screenshots 
       : [req.files.screenshots];
     
-    const screenshotPaths = [];
+    const screenshotUrls = [];
+    const screenshotPaths = []; // For cleanup on error
     
     for (const screenshot of screenshotFiles) {
       const screenshotFileName = `${uuidv4()}${path.extname(screenshot.originalname)}`;
@@ -206,6 +207,12 @@ exports.uploadApp = async (req, res, next) => {
         return next(new ErrorResponse(`Error uploading screenshots: ${screenshotError.message}`, 500));
       }
       
+      // Get public URL for screenshot
+      const { data: { publicUrl: screenshotUrl } } = supabase.storage
+        .from('app_screenshots')
+        .getPublicUrl(screenshotFilePath);
+      
+      screenshotUrls.push(screenshotUrl);
       screenshotPaths.push(screenshotFilePath);
     }
 
@@ -236,7 +243,7 @@ exports.uploadApp = async (req, res, next) => {
           is_premium: is_premium === 'true',
           changelog: changelog || `Initial release of ${name} v${version}`,
           icon_url: iconUrl,
-          screenshots: screenshotPaths,
+          screenshots: screenshotUrls,
           file_path: apkFilePath,
           download_url: apkUrl,
           file_size: apkFile.size,
@@ -426,10 +433,19 @@ exports.updateApp = async (req, res, next) => {
 
         updateData.icon_url = iconUrl;
 
-        // Schedule old icon for cleanup
+        // Schedule old icon for cleanup - extract path from URL correctly
         if (existingApp.icon_url) {
-          const oldIconPath = existingApp.icon_url.split('/').pop();
-          filesToCleanup.push({ bucket: 'app_icons', path: oldIconPath });
+          try {
+            // Extract the storage path from the public URL
+            // URL format: https://[project].supabase.co/storage/v1/object/public/app_icons/[path]
+            const urlParts = existingApp.icon_url.split('/app_icons/');
+            if (urlParts.length > 1) {
+              const oldIconPath = `app_icons/${urlParts[1]}`;
+              filesToCleanup.push({ bucket: 'app_icons', path: oldIconPath });
+            }
+          } catch (err) {
+            console.error('Error extracting old icon path:', err);
+          }
         }
       }
 
@@ -481,7 +497,12 @@ exports.updateApp = async (req, res, next) => {
             throw new Error(`Error uploading screenshot: ${screenshotError.message}`);
           }
 
-          screenshots.push(screenshotFilePath);
+          // Get public URL for screenshot
+          const { data: { publicUrl: screenshotUrl } } = supabase.storage
+            .from('app_screenshots')
+            .getPublicUrl(screenshotFilePath);
+
+          screenshots.push(screenshotUrl);
         }
       }
 

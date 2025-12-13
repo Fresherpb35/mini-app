@@ -24,16 +24,28 @@ exports.protect = async (req, res, next) => {
     }
 
     // Add user to request object with Supabase Auth data
+    // Extract user data from user_metadata or raw_user_meta_data (for OAuth users)
     req.user = {
       id: user.id,
       email: user.email,
-      name: user.user_metadata?.name,
-      role: user.user_metadata?.role || 'user',
+      name: user.user_metadata?.name || 
+            user.user_metadata?.full_name || 
+            user.raw_user_meta_data?.name ||
+            user.raw_user_meta_data?.full_name ||
+            user.email?.split('@')[0] ||
+            'User',
+      avatar_url: user.user_metadata?.avatar_url || 
+                  user.raw_user_meta_data?.avatar_url || 
+                  null,
+      role: user.user_metadata?.role || 
+            user.app_metadata?.role || 
+            'user',
       email_confirmed: !!user.email_confirmed_at
     };
     
     next();
   } catch (err) {
+    console.error('Auth middleware error:', err);
     return next(new ErrorResponse('Not authorized to access this route', 401));
   }
 };

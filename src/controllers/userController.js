@@ -264,17 +264,19 @@ exports.uninstallApp = async (req, res, next) => {
 // @access  Private
 exports.getUserProfile = async (req, res, next) => {
   try {
-    // Get user details from users table
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('id, name, email, avatar_url, role')
-      .eq('id', req.user.id)
-      .single();
+    console.log('Getting user profile for:', req.user.id);
+    
+    // Use user data from req.user (set by auth middleware)
+    // This works for both email/password and OAuth users
+    const user = {
+      id: req.user.id,
+      email: req.user.email || '',
+      name: req.user.name || 'User',
+      avatar_url: req.user.avatar_url || null,
+      role: req.user.role || 'user',
+      email_confirmed: req.user.email_confirmed || false,
+    };
 
-    if (userError || !user) {
-      console.error('Error fetching user details:', userError);
-      return next(new ErrorResponse('Error fetching user profile', 500));
-    }
 
     // Get download count
     const { count: downloadCount, error: downloadError } = await supabase
@@ -319,7 +321,8 @@ exports.getUserProfile = async (req, res, next) => {
           email: user.email,
           name: user.name,
           avatar_url: user.avatar_url,
-          role: user.role || 'user',
+          role: user.role,
+          email_confirmed: user.email_confirmed,
         },
         stats: {
           downloads: downloadCount || 0,
@@ -329,6 +332,7 @@ exports.getUserProfile = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error('Get user profile error:', error);
+    next(new ErrorResponse('Error fetching user profile', 500));
   }
 };

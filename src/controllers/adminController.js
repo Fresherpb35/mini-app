@@ -681,10 +681,37 @@ exports.getCategories = async (req, res, next) => {
 
     if (error) throw error;
 
+    // Get app counts for each category
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        // Count total apps in this category
+        const { count: totalApps, error: countError } = await supabase
+          .from('apps')
+          .select('*', { count: 'exact', head: true })
+          .eq('category', category.name);
+
+        // Count published apps in this category
+        const { count: publishedApps, error: publishedCountError } = await supabase
+          .from('apps')
+          .select('*', { count: 'exact', head: true })
+          .eq('category', category.name)
+          .eq('status', 'published');
+
+        if (countError) throw countError;
+        if (publishedCountError) throw publishedCountError;
+
+        return {
+          ...category,
+          total_apps: totalApps || 0,
+          published_apps: publishedApps || 0
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
-      count: categories.length,
-      data: categories
+      count: categoriesWithCounts.length,
+      data: categoriesWithCounts
     });
   } catch (error) {
     next(error);

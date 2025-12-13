@@ -703,10 +703,28 @@ exports.getCategories = async (req, res, next) => {
 
     if (error) throw error;
 
+    // Get approved app counts for each category (public endpoint, so only published apps)
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        const { count, error: countError } = await supabase
+          .from('apps')
+          .select('*', { count: 'exact', head: true })
+          .eq('category', category.name)
+          .eq('status', 'published');
+
+        if (countError) throw countError;
+
+        return {
+          ...category,
+          app_count: count || 0
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
-      count: categories.length,
-      data: categories
+      count: categoriesWithCounts.length,
+      data: categoriesWithCounts
     });
   } catch (error) {
     next(error);

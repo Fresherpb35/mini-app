@@ -6,6 +6,10 @@ Base URL: `http://localhost:5000/api`
 - [Authentication](#authentication)
 - [Apps](#apps)
 - [User](#user)
+  - [Profile & Downloads](#get-user-profile)
+  - [Wishlist Management](#add-app-to-wishlist)
+  - [Review Management](#update-users-review)
+  - [Notifications](#get-user-notifications)
 - [Developer](#developer)
 - [Admin](#admin)
 - [Notifications](#notifications)
@@ -1056,6 +1060,491 @@ Authorization: Bearer {access_token}
   "success": true,
   "message": "All notifications marked as read"
 }
+```
+
+---
+
+### Add App to Wishlist
+
+**Endpoint:** `POST /api/user/wishlist/:appId`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `appId` (integer) - The ID of the app to add to wishlist
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "message": "Amazing Game added to wishlist",
+  "data": {
+    "id": 1,
+    "user_id": "uuid",
+    "app_id": 123,
+    "added_at": "2025-12-13T05:00:00.000Z"
+  }
+}
+```
+
+**Error Responses:**
+- `404` - App not found
+- `400` - App already in wishlist
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:5000/api/user/wishlist/123 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Remove App from Wishlist
+
+**Endpoint:** `DELETE /api/user/wishlist/:appId`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `appId` (integer) - The ID of the app to remove from wishlist
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "App removed from wishlist",
+  "data": {}
+}
+```
+
+**cURL Example:**
+```bash
+curl -X DELETE http://localhost:5000/api/user/wishlist/123 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Get User's Wishlist
+
+**Endpoint:** `GET /api/user/wishlist`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `page` (number, default: 1)
+- `limit` (number, default: 20)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "count": 5,
+  "pagination": {
+    "next": { "page": 2, "limit": 20 },
+    "prev": { "page": 1, "limit": 20 },
+    "total": 25,
+    "totalPages": 2,
+    "currentPage": 1
+  },
+  "data": [
+    {
+      "id": 1,
+      "user_id": "uuid",
+      "app_id": 123,
+      "added_at": "2025-12-13T05:00:00.000Z",
+      "apps": {
+        "id": 123,
+        "name": "Amazing Game",
+        "icon_url": "https://...",
+        "category": "Games",
+        "average_rating": 4.5,
+        "price": 0,
+        "status": "published",
+        "downloads": 10000,
+        "review_count": 150
+      }
+    }
+  ]
+}
+```
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:5000/api/user/wishlist?page=1&limit=20" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Check if App is in Wishlist
+
+**Endpoint:** `GET /api/user/wishlist/check/:appId`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `appId` (integer) - The ID of the app to check
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "inWishlist": true,
+    "wishlistItem": {
+      "id": 1,
+      "user_id": "uuid",
+      "app_id": 123,
+      "added_at": "2025-12-13T05:00:00.000Z"
+    }
+  }
+}
+```
+
+**When not in wishlist:**
+```json
+{
+  "success": true,
+  "data": {
+    "inWishlist": false,
+    "wishlistItem": null
+  }
+}
+```
+
+**cURL Example:**
+```bash
+curl -X GET http://localhost:5000/api/user/wishlist/check/123 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Create App Review
+
+**Endpoint:** `POST /api/apps/:id/reviews`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `id` (uuid) - The ID of the app to review
+
+**Request Body:**
+```json
+{
+  "rating": 5,
+  "comment": "Great app! Very useful and well-designed."
+}
+```
+
+**Validation:**
+- `rating` is required and must be between 1 and 5
+- `comment` is optional but recommended
+- User must have downloaded the app before reviewing
+- User can only submit one review per app
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "app_id": "uuid",
+    "user_id": "uuid",
+    "rating": 5,
+    "comment": "Great app! Very useful and well-designed.",
+    "created_at": "2025-12-13T05:00:00.000Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` - User must download the app before reviewing
+- `400` - User has already reviewed this app
+- `400` - Invalid rating value
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:5000/api/apps/123/reviews \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rating": 5,
+    "comment": "Great app!"
+  }'
+```
+
+---
+
+### Update User's Review
+
+**Endpoint:** `PUT /api/user/reviews/:reviewId`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `reviewId` (integer) - The ID of the review to update
+
+**Request Body:**
+```json
+{
+  "rating": 4,
+  "comment": "Updated review comment - great app with minor issues"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Review updated successfully",
+  "data": {
+    "id": 1,
+    "app_id": 123,
+    "user_id": "uuid",
+    "rating": 4,
+    "comment": "Updated review comment - great app with minor issues",
+    "created_at": "2025-12-01T10:00:00.000Z",
+    "updated_at": "2025-12-13T05:00:00.000Z",
+    "helpful_count": 5
+  }
+}
+```
+
+**Error Responses:**
+- `400` - Invalid rating (must be 1-5)
+- `404` - Review not found or doesn't belong to user
+
+**cURL Example:**
+```bash
+curl -X PUT http://localhost:5000/api/user/reviews/1 \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rating": 4,
+    "comment": "Updated review comment"
+  }'
+```
+
+---
+
+### Delete User's Review
+
+**Endpoint:** `DELETE /api/user/reviews/:reviewId`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `reviewId` (integer) - The ID of the review to delete
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Review deleted successfully",
+  "data": {}
+}
+```
+
+**Error Responses:**
+- `404` - Review not found or doesn't belong to user
+
+**cURL Example:**
+```bash
+curl -X DELETE http://localhost:5000/api/user/reviews/1 \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Get User's Reviews
+
+**Endpoint:** `GET /api/user/reviews`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `page` (number, default: 1)
+- `limit` (number, default: 10)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "count": 3,
+  "pagination": {
+    "total": 15,
+    "totalPages": 2,
+    "currentPage": 1,
+    "next": { "page": 2, "limit": 10 }
+  },
+  "data": [
+    {
+      "id": 1,
+      "app_id": 123,
+      "user_id": "uuid",
+      "rating": 5,
+      "comment": "Great app!",
+      "created_at": "2025-12-10T10:00:00.000Z",
+      "updated_at": "2025-12-10T10:00:00.000Z",
+      "helpful_count": 10,
+      "apps": {
+        "id": 123,
+        "name": "Amazing Game",
+        "icon_url": "https://...",
+        "category": "Games"
+      }
+    }
+  ]
+}
+```
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:5000/api/user/reviews?page=1&limit=10" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Mark Review as Helpful
+
+**Endpoint:** `POST /api/user/reviews/:reviewId/helpful`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `reviewId` (integer) - The ID of the review to mark as helpful
+
+**Note:** This endpoint acts as a toggle. If already marked, it will remove the mark.
+
+**Response (200) - Marked as helpful:**
+```json
+{
+  "success": true,
+  "message": "Review marked as helpful",
+  "data": {
+    "isHelpful": true,
+    "helpfulCount": 15
+  }
+}
+```
+
+**Response (200) - Removed helpful mark:**
+```json
+{
+  "success": true,
+  "message": "Helpful mark removed",
+  "data": {
+    "isHelpful": false,
+    "helpfulCount": 14
+  }
+}
+```
+
+**Error Responses:**
+- `404` - Review not found
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:5000/api/user/reviews/1/helpful \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Report Review
+
+**Endpoint:** `POST /api/user/reviews/:reviewId/report`  
+**Access:** Private
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `reviewId` (integer) - The ID of the review to report
+
+**Request Body:**
+```json
+{
+  "reason": "Spam or inappropriate content"
+}
+```
+
+**Common Report Reasons:**
+- "Spam or inappropriate content"
+- "Offensive language"
+- "False or misleading information"
+- "Irrelevant to the app"
+- "Hate speech or harassment"
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "message": "Review reported successfully. Our team will review it.",
+  "data": {
+    "id": 1,
+    "review_id": 123,
+    "reported_by": "uuid",
+    "reason": "Spam or inappropriate content",
+    "status": "pending",
+    "created_at": "2025-12-13T05:00:00.000Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` - Missing reason or already reported
+- `404` - Review not found
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:5000/api/user/reviews/123/report \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reason": "Spam or inappropriate content"
+  }'
 ```
 
 ---

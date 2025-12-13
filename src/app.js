@@ -37,6 +37,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+
 // Error handling middleware
 app.use(errorHandler);
 

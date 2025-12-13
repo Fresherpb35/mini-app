@@ -8,8 +8,12 @@ const {
   deleteApp,
   uploadAppIcon,
   uploadAppScreenshots,
-  getAppAnalytics,
   getDeveloperDashboard,
+  getAppAnalytics,
+  getDeveloperAnalyticsOverview,
+  reportAppUsage,
+  getRevenueAnalytics,
+  getRecentActivity,
 } = require('../controllers/developerController');
 const { sendAppNotification } = require('../controllers/notificationController');
 const { protect, authorize } = require('../middleware/auth');
@@ -23,6 +27,7 @@ router.use(authorize('developer', 'admin'));
 // App management routes
 router.get('/apps', getDeveloperApps);
 router.get('/dashboard', getDeveloperDashboard);
+router.get('/recent-activity', getRecentActivity);
 
 // File uploads
 router.post('/apps/upload', 
@@ -70,8 +75,11 @@ router
   .put(updateApp)
   .delete(deleteApp);
 
-// Analytics
-router.get('/analytics/:appId', getAppAnalytics);
+// Analytics routes
+router.get('/analytics/overview', getDeveloperAnalyticsOverview);
+router.get('/analytics/app/:appId', getAppAnalytics);
+router.get('/analytics/revenue', getRevenueAnalytics);
+router.post('/analytics/usage', reportAppUsage);
 
 // Notifications
 router.post('/apps/:appId/notifications', sendAppNotification);

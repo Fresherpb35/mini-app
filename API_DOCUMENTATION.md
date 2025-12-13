@@ -11,8 +11,10 @@ Base URL: `http://localhost:5000/api`
   - [Review Management](#update-users-review)
   - [Notifications](#get-user-notifications)
 - [Developer](#developer)
+- [Analytics](#analytics)
 - [Admin](#admin)
 - [Notifications](#notifications)
+
 
 ## Common Response Format
 
@@ -1824,6 +1826,432 @@ Authorization: Bearer {access_token}
   "sentCount": 500
 }
 ```
+
+---
+
+## Analytics
+
+Base path: `/api/developers/analytics`
+
+All analytics endpoints require authentication with `developer` or `admin` role.
+
+### Get App Analytics
+
+Get comprehensive analytics for a specific app including performance metrics, downloads over time, and revenue data.
+
+**Endpoint:** `GET /api/developers/analytics/app/:appId`  
+**Access:** Private (Developer/Admin)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Path Parameters:**
+- `appId` (uuid) - ID of the app
+
+**Query Parameters:**
+- `period` (number, optional, default: 30) - Number of days to fetch data for
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "appName": "My Awesome App",
+    "performance": {
+      "totalDownloads": 1200,
+      "activeUsers30d": 890,
+      "retentionRate": 68.0,
+      "crashRate": 0.2
+    },
+    "revenue": {
+      "total": "125.50",
+      "thisMonth": "45.20"
+    },
+    "downloadsOverTime": [
+      {
+        "date": "2025-01-15",
+        "downloads": 45,
+        "views": 120,
+        "revenue": "5.50"
+      },
+      {
+        "date": "2025-01-16",
+        "downloads": 52,
+        "views": 135,
+        "revenue": "6.20"
+      }
+    ],
+    "metadata": {
+      "views": 5000,
+      "rating": "4.5",
+      "reviewCount": 230,
+      "createdAt": "2024-12-01T00:00:00Z"
+    }
+  }
+}
+```
+
+**Response Fields:**
+- `appName` - Name of the app
+- `performance` - Key performance metrics
+  - `totalDownloads` - Total number of downloads
+  - `activeUsers30d` - Number of unique active users in the last 30 days
+  - `retentionRate` - Percentage of downloaders who are still active (0-100)
+  - `crashRate` - Percentage of sessions that resulted in crashes (0-100)
+- `revenue` - Revenue information
+  - `total` - Total revenue from all time
+  - `thisMonth` - Revenue in the current month
+- `downloadsOverTime` - Array of daily statistics for the specified period
+- `metadata` - Additional app information (views, rating, reviews, creation date)
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:5000/api/developers/analytics/app/550e8400-e29b-41d4-a716-446655440000?period=30" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+**Error Responses:**
+- `403 Forbidden` - User is not the owner of the app
+- `404 Not Found` - App not found
+
+---
+
+### Get Developer Analytics Overview
+
+Get analytics overview for all apps owned by the developer. Includes aggregate metrics and top performing apps.
+
+**Endpoint:** `GET /api/developers/analytics/overview`  
+**Access:** Private (Developer/Admin)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `period` (number, optional, default: 30) - Number of days to fetch data for
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "totalApps": 5,
+    "totalDownloads": 5000,
+    "totalRevenue": "500.50",
+    "averageRating": "4.3",
+    "apps": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "name": "My App 1",
+        "downloads": 1200,
+        "periodDownloads": 350,
+        "rating": "4.5",
+        "reviewCount": 230,
+        "status": "published",
+        "createdAt": "2024-12-01T00:00:00Z"
+      },
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440001",
+        "name": "My App 2",
+        "downloads": 900,
+        "periodDownloads": 280,
+        "rating": "4.2",
+        "reviewCount": 180,
+        "status": "published",
+        "createdAt": "2024-11-15T00:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+**Response Fields:**
+- `totalApps` - Total number of apps owned by developer
+- `totalDownloads` - Sum of all downloads across all apps
+- `totalRevenue` - Total revenue across all apps
+- `averageRating` - Average rating across all apps (0-5)
+- `apps` - Array of top 10 apps (sorted by downloads)
+  - `periodDownloads` - Downloads in the specified period
+
+**cURL Example:**
+```bash
+curl -X GET "http://localhost:5000/api/developers/analytics/overview?period=30" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Get Revenue Analytics
+
+Get detailed revenue breakdown and trends. Can be filtered by specific app or view all apps.
+
+**Endpoint:** `GET /api/developers/analytics/revenue`  
+**Access:** Private (Developer/Admin)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `period` (number, optional, default: 30) - Number of days to fetch data for
+- `appId` (uuid, optional) - Filter by specific app
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "total": "125.50",
+    "breakdown": [
+      {
+        "appName": "My App 1",
+        "revenue": "75.50"
+      },
+      {
+        "appName": "My App 2",
+        "revenue": "50.00"
+      }
+    ],
+    "trend": [
+      {
+        "date": "2025-01-15",
+        "revenue": "5.50"
+      },
+      {
+        "date": "2025-01-16",
+        "revenue": "6.20"
+      }
+    ]
+  }
+}
+```
+
+**Response Fields:**
+- `total` - Total revenue for the period
+- `breakdown` - Revenue breakdown by app
+- `trend` - Daily revenue trend
+
+**cURL Example:**
+```bash
+# All apps
+curl -X GET "http://localhost:5000/api/developers/analytics/revenue?period=30" \
+  -H "Authorization: Bearer {access_token}"
+
+# Specific app
+curl -X GET "http://localhost:5000/api/developers/analytics/revenue?period=30&appId=550e8400-e29b-41d4-a716-446655440000" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+---
+
+### Report App Usage
+
+Endpoint for mobile apps to report usage data including sessions, crashes, and usage time. This data is used to calculate active users and crash rates.
+
+**Endpoint:** `POST /api/developers/analytics/usage`  
+**Access:** Private (Any authenticated user)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "app_id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_id": "660e8400-e29b-41d4-a716-446655440001",
+  "session_started": true,
+  "crash_occurred": false,
+  "usage_minutes": 15
+}
+```
+
+**Request Fields:**
+- `app_id` (uuid, required) - ID of the app
+- `user_id` (uuid, required) - ID of the user
+- `session_started` (boolean, optional, default: false) - Whether a new session started
+- `crash_occurred` (boolean, optional, default: false) - Whether a crash occurred
+- `usage_minutes` (number, optional, default: 0) - Number of minutes the app was used
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Usage data recorded successfully"
+}
+```
+
+**cURL Example:**
+```bash
+curl -X POST http://localhost:5000/api/developers/analytics/usage \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "550e8400-e29b-41d4-a716-446655440000",
+    "user_id": "660e8400-e29b-41d4-a716-446655440001",
+    "session_started": true,
+    "crash_occurred": false,
+    "usage_minutes": 5
+  }'
+```
+
+**Usage Notes:**
+- Call this endpoint when:
+  - User opens the app (`session_started: true`)
+  - App crashes (`crash_occurred: true`)
+  - Periodically to report usage time (e.g., every 5 minutes)
+- Data is automatically aggregated for analytics dashboards
+- Creates or updates daily usage records per user per app
+
+**Error Responses:**
+- `400 Bad Request` - Missing required fields (app_id or user_id)
+- `401 Unauthorized` - Invalid or missing authentication token
+- `500 Internal Server Error` - Error recording usage data
+
+---
+
+### Analytics Metrics Explained
+
+#### Retention Rate
+The percentage of users who downloaded the app and are still actively using it.
+
+**Formula:**
+```
+(Active Users in Last 30 Days / Total Unique Downloaders) × 100
+```
+
+**Example:**
+- Total downloaders: 1000
+- Active users (30d): 680
+- Retention rate: 68%
+
+#### Crash Rate
+The percentage of app sessions that resulted in a crash.
+
+**Formula:**
+```
+(Total Crashes / Total Sessions) × 100
+```
+
+**Example:**
+- Total sessions: 10,000
+- Total crashes: 20
+- Crash rate: 0.2%
+
+#### Active Users (30d)
+The number of unique users who have used the app in the last 30 days. A user is considered active if they have any usage activity (session, crash, or usage time) in the period.
+
+---
+
+### Get Recent Activity
+
+Get recent activity (downloads and reviews) across all developer's apps in chronological order.
+
+**Endpoint:** `GET /api/developers/recent-activity`  
+**Access:** Private (Developer/Admin)
+
+**Headers:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+- `limit` (number, optional, default: 20) - Number of activities to return
+- `type` (string, optional) - Filter by activity type: `downloads`, `reviews`, or `all` (default)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "activities": [
+      {
+        "id": "uuid",
+        "type": "download",
+        "app_id": "uuid",
+        "app_name": "My Awesome App",
+        "app_icon": "https://...",
+        "user_id": "uuid",
+        "user_name": "John Doe",
+        "user_email": "john@example.com",
+        "version": "1.0.0",
+        "timestamp": "2025-01-16T10:30:00Z",
+        "created_at": "2025-01-16T10:30:00Z"
+      },
+      {
+        "id": "uuid",
+        "type": "review",
+        "app_id": "uuid",
+        "app_name": "My Awesome App",
+        "app_icon": "https://...",
+        "user_id": "uuid",
+        "user_name": "Jane Smith",
+        "user_email": "jane@example.com",
+        "rating": 5,
+        "comment": "Great app!",
+        "timestamp": "2025-01-16T09:15:00Z",
+        "created_at": "2025-01-16T09:15:00Z",
+        "updated_at": "2025-01-16T09:15:00Z"
+      }
+    ],
+    "total": 20,
+    "filter": "all"
+  }
+}
+```
+
+**Response Fields:**
+- `activities` - Array of activity objects sorted by timestamp (most recent first)
+- `total` - Number of activities returned
+- `filter` - The applied filter type
+
+**Activity Types:**
+
+**Download Activity:**
+- `type` - Always `"download"`
+- `version` - Version of the app that was downloaded
+- `timestamp` - When the download occurred
+
+**Review Activity:**
+- `type` - Always `"review"`
+- `rating` - Rating from 1-5 stars
+- `comment` - Optional review comment
+- `timestamp` - When the review was created
+- `updated_at` - When the review was last updated
+
+**cURL Examples:**
+```bash
+# Get all recent activities (downloads and reviews)
+curl -X GET "http://localhost:5000/api/developers/recent-activity?limit=20" \
+  -H "Authorization: Bearer {access_token}"
+
+# Get only downloads
+curl -X GET "http://localhost:5000/api/developers/recent-activity?type=downloads&limit=10" \
+  -H "Authorization: Bearer {access_token}"
+
+# Get only reviews
+curl -X GET "http://localhost:5000/api/developers/recent-activity?type=reviews&limit=15" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+**Use Cases:**
+- Display recent activity feed in developer dashboard
+- Monitor download trends across all apps
+- Track incoming reviews in real-time
+- Identify active users and engagement patterns
+
+**Notes:**
+- Activities are automatically logged when users download apps or submit reviews
+- Download data comes from the `downloads` table with `downloaded_at` timestamp
+- Review data comes from the `reviews` table with `created_at` timestamp
+- Only non-flagged reviews are included
+- Results are sorted by most recent activity first
 
 ---
 

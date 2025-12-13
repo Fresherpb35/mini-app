@@ -1095,3 +1095,613 @@ exports.getDeveloperDashboard = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Get analytics overview for a specific app
+// @route   GET /api/developers/analytics/app/:appId
+// @access  Private/Developer
+exports.getAppAnalytics = async (req, res, next) => {
+  try {
+    const { appId } = req.params;
+    const { period = '30' } = req.query; // Default to 30 days
+
+    // Verify app ownership
+    const { data: app, error: appError } = await supabase
+      .from('apps')
+      .select('id, developer_id, name, downloads, views, average_rating, review_count, price, created_at')
+      .eq('id', appId)
+      .single();
+
+    if (appError || !app) {
+      return next(new ErrorResponse('App not found', 404));
+    }
+
+    if (app.developer_id !== req.user.id) {
+      return next(new ErrorResponse('Not authorized to view analytics for this app', 403));
+    }
+
+    const daysAgo = parseInt(period);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysAgo);
+
+    // Get downloads over time
+    const { data: downloadsOverTime, error: downloadsError } = await supabase
+      .from('app_analytics')
+      .select('date, downloads_count, views_count, revenue')
+      .eq('app_id', appId)
+      .gte('date', startDate.toISOString().split('T')[0])
+      .order('date', { ascending: true });
+
+    if (downloadsError) {
+      console.error('Downloads error:', downloadsError);
+    }
+
+    // Get active users count (30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: activeUsersData, error: activeUsersError } = await supabase
+      .from('app_usage_analytics')
+      .select('user_id')
+      .eq('app_id', appId)
+      .gte('last_active_at', thirtyDaysAgo.toISOString());
+
+    const activeUsers30d = activeUsersData 
+      ? new Set(activeUsersData.map(u => u.user_id)).size 
+      : 0;
+
+    // Calculate retention rate
+    const { data: totalDownloadsData, error: totalDownloadsError } = await supabase
+      .from('downloads')
+      .select('user_id, downloaded_at')
+      .eq('app_id', appId);
+
+    const totalUniqueDownloaders = totalDownloadsData 
+      ? new Set(totalDownloadsData.map(d => d.user_id)).size 
+      : 0;
+
+    const retentionRate = totalUniqueDownloaders > 0 
+      ? ((activeUsers30d / totalUniqueDownloaders) * 100).toFixed(1)
+      : 0;
+
+    // Calculate crash rate
+    const { data: usageData, error: usageError } = await supabase
+      .from('app_usage_analytics')
+      .select('sessions_count, crash_count')
+      .eq('app_id', appId)
+      .gte('date', startDate.toISOString().split('T')[0]);
+
+    let totalSessions = 0;
+    let totalCrashes = 0;
+
+    if (usageData) {
+      usageData.forEach(record => {
+        totalSessions += record.sessions_count || 0;
+        totalCrashes += record.crash_count || 0;
+      });
+    }
+
+    const crashRate = totalSessions > 0 
+      ? ((totalCrashes / totalSessions) * 100).toFixed(2)
+      : 0;
+
+    // Calculate total revenue
+    const { data: revenueData, error: revenueError } = await supabase
+      .from('app_analytics')
+      .select('revenue')
+      .eq('app_id', appId);
+
+    const totalRevenue = revenueData 
+      ? revenueData.reduce((sum, record) => sum + parseFloat(record.revenue || 0), 0)
+      : 0;
+
+    // Calculate this month's revenue
+    const firstDayOfMonth = new Date();
+    firstDayOfMonth.setDate(1);
+    firstDayOfMonth.setHours(0, 0, 0, 0);
+
+    const { data: monthRevenueData, error: monthRevenueError } = await supabase
+      .from('app_analytics')
+      .select('revenue')
+      .eq('app_id', appId)
+      .gte('date', firstDayOfMonth.toISOString().split('T')[0]);
+
+    const thisMonthRevenue = monthRevenueData 
+      ? monthRevenueData.reduce((sum, record) => sum + parseFloat(record.revenue || 0), 0)
+      : 0;
+
+    // Format downloads over time data
+    const downloadsChart = downloadsOverTime || [];
+
+    res.status(200).json({
+      success: true,
+      data: {
+        appName: app.name,
+        performance: {
+          totalDownloads: app.downloads || 0,
+          activeUsers30d: activeUsers30d,
+          retentionRate: parseFloat(retentionRate),
+          crashRate: parseFloat(crashRate),
+        },
+        revenue: {
+          total: parseFloat(totalRevenue).toFixed(2),
+          thisMonth: parseFloat(thisMonthRevenue).toFixed(2),
+        },
+        downloadsOverTime: downloadsChart.map(item => ({
+          date: item.date,
+          downloads: item.downloads_count || 0,
+          views: item.views_count || 0,
+          revenue: parseFloat(item.revenue || 0).toFixed(2),
+        })),
+        metadata: {
+          views: app.views || 0,
+          rating: parseFloat(app.average_rating || 0).toFixed(1),
+          reviewCount: app.review_count || 0,
+          createdAt: app.created_at,
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get app analytics error:', error);
+    next(error);
+  }
+};
+
+// @desc    Get analytics overview for all developer apps
+// @route   GET /api/developers/analytics/overview
+// @access  Private/Developer
+exports.getDeveloperAnalyticsOverview = async (req, res, next) => {
+  try {
+    const { period = '30' } = req.query;
+
+    // Get all developer apps
+    const { data: apps, error: appsError } = await supabase
+      .from('apps')
+      .select('id, name, downloads, average_rating, review_count, price, status, created_at')
+      .eq('developer_id', req.user.id)
+      .order('downloads', { ascending: false });
+
+    if (appsError) {
+      return next(new ErrorResponse('Error fetching developer apps', 500));
+    }
+
+    if (!apps || apps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          totalApps: 0,
+          totalDownloads: 0,
+          totalRevenue: 0,
+          averageRating: 0,
+          apps: [],
+        }
+      });
+    }
+
+    const appIds = apps.map(app => app.id);
+
+    // Calculate total downloads
+    const totalDownloads = apps.reduce((sum, app) => sum + (app.downloads || 0), 0);
+
+    // Calculate average rating
+    const appsWithRatings = apps.filter(app => app.review_count > 0);
+    const averageRating = appsWithRatings.length > 0
+      ? (apps.reduce((sum, app) => sum + (parseFloat(app.average_rating) || 0), 0) / apps.length)
+      : 0;
+
+    // Get total revenue
+    const { data: revenueData, error: revenueError } = await supabase
+      .from('app_analytics')
+      .select('revenue')
+      .in('app_id', appIds);
+
+    const totalRevenue = revenueData 
+      ? revenueData.reduce((sum, record) => sum + parseFloat(record.revenue || 0), 0)
+      : 0;
+
+    // Get analytics for each app
+    const appsWithAnalytics = await Promise.all(
+      apps.slice(0, 10).map(async (app) => { // Limit to top 10 apps
+        const daysAgo = parseInt(period);
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - daysAgo);
+
+        // Get downloads trend
+        const { data: analytics, error: analyticsError } = await supabase
+          .from('app_analytics')
+          .select('downloads_count')
+          .eq('app_id', app.id)
+          .gte('date', startDate.toISOString().split('T')[0]);
+
+        const periodDownloads = analytics 
+          ? analytics.reduce((sum, record) => sum + (record.downloads_count || 0), 0)
+          : 0;
+
+        return {
+          id: app.id,
+          name: app.name,
+          downloads: app.downloads || 0,
+          periodDownloads,
+          rating: parseFloat(app.average_rating || 0).toFixed(1),
+          reviewCount: app.review_count || 0,
+          status: app.status,
+          createdAt: app.created_at,
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalApps: apps.length,
+        totalDownloads,
+        totalRevenue: parseFloat(totalRevenue).toFixed(2),
+        averageRating: averageRating.toFixed(1),
+        apps: appsWithAnalytics,
+      }
+    });
+  } catch (error) {
+    console.error('Get developer analytics overview error:', error);
+    next(error);
+  }
+};
+
+// @desc    Report app usage (for mobile apps to track sessions and crashes)
+// @route   POST /api/developers/analytics/usage
+// @access  Public (with app authentication)
+exports.reportAppUsage = async (req, res, next) => {
+  try {
+    const { 
+      app_id, 
+      user_id, 
+      session_started = false,
+      crash_occurred = false,
+      usage_minutes = 0 
+    } = req.body;
+
+    if (!app_id || !user_id) {
+      return next(new ErrorResponse('App ID and User ID are required', 400));
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Get or create usage record for today
+    const { data: existingUsage, error: fetchError } = await supabase
+      .from('app_usage_analytics')
+      .select('*')
+      .eq('app_id', app_id)
+      .eq('user_id', user_id)
+      .eq('date', today)
+      .single();
+
+    if (existingUsage) {
+      // Update existing record
+      const { data: updatedUsage, error: updateError } = await supabase
+        .from('app_usage_analytics')
+        .update({
+          sessions_count: session_started 
+            ? (existingUsage.sessions_count || 0) + 1 
+            : existingUsage.sessions_count,
+          crash_count: crash_occurred 
+            ? (existingUsage.crash_count || 0) + 1 
+            : existingUsage.crash_count,
+          total_usage_minutes: (existingUsage.total_usage_minutes || 0) + usage_minutes,
+          last_active_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('app_id', app_id)
+        .eq('user_id', user_id)
+        .eq('date', today)
+        .select()
+        .single();
+
+      if (updateError) {
+        return next(new ErrorResponse('Error updating usage analytics', 500));
+      }
+    } else {
+      // Create new record
+      const { data: newUsage, error: insertError } = await supabase
+        .from('app_usage_analytics')
+        .insert([{
+          app_id,
+          user_id,
+          date: today,
+          sessions_count: session_started ? 1 : 0,
+          crash_count: crash_occurred ? 1 : 0,
+          total_usage_minutes: usage_minutes,
+          last_active_at: new Date().toISOString(),
+        }])
+        .select()
+        .single();
+
+      if (insertError) {
+        return next(new ErrorResponse('Error creating usage analytics', 500));
+      }
+    }
+
+    // Update app_analytics daily summary
+    const { data: dailyAnalytics, error: dailyError } = await supabase
+      .from('app_analytics')
+      .select('*')
+      .eq('app_id', app_id)
+      .eq('date', today)
+      .single();
+
+    if (dailyAnalytics) {
+      await supabase
+        .from('app_analytics')
+        .update({
+          session_count: session_started 
+            ? (dailyAnalytics.session_count || 0) + 1 
+            : dailyAnalytics.session_count,
+          crash_count: crash_occurred 
+            ? (dailyAnalytics.crash_count || 0) + 1 
+            : dailyAnalytics.crash_count,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('app_id', app_id)
+        .eq('date', today);
+    } else {
+      await supabase
+        .from('app_analytics')
+        .insert([{
+          app_id,
+          date: today,
+          session_count: session_started ? 1 : 0,
+          crash_count: crash_occurred ? 1 : 0,
+        }]);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Usage data recorded successfully',
+    });
+  } catch (error) {
+    console.error('Report app usage error:', error);
+    next(error);
+  }
+};
+
+// @desc    Get revenue breakdown
+// @route   GET /api/developers/analytics/revenue
+// @access  Private/Developer
+exports.getRevenueAnalytics = async (req, res, next) => {
+  try {
+    const { period = '30', appId } = req.query;
+
+    const daysAgo = parseInt(period);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysAgo);
+
+    let query = supabase
+      .from('app_analytics')
+      .select('date, revenue, app_id, apps(name)')
+      .gte('date', startDate.toISOString().split('T')[0])
+      .order('date', { ascending: true });
+
+    // If appId provided, filter by app
+    if (appId) {
+      // Verify app ownership
+      const { data: app, error: appError } = await supabase
+        .from('apps')
+        .select('developer_id')
+        .eq('id', appId)
+        .single();
+
+      if (appError || !app || app.developer_id !== req.user.id) {
+        return next(new ErrorResponse('App not found or not authorized', 403));
+      }
+
+      query = query.eq('app_id', appId);
+    } else {
+      // Get all developer apps
+      const { data: apps, error: appsError } = await supabase
+        .from('apps')
+        .select('id')
+        .eq('developer_id', req.user.id);
+
+      if (appsError || !apps || apps.length === 0) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            total: 0,
+            breakdown: [],
+            trend: [],
+          }
+        });
+      }
+
+      const appIds = apps.map(app => app.id);
+      query = query.in('app_id', appIds);
+    }
+
+    const { data: revenueData, error: revenueError } = await query;
+
+    if (revenueError) {
+      return next(new ErrorResponse('Error fetching revenue data', 500));
+    }
+
+    const total = revenueData 
+      ? revenueData.reduce((sum, record) => sum + parseFloat(record.revenue || 0), 0)
+      : 0;
+
+    // Group by date for trend
+    const trendMap = {};
+    revenueData?.forEach(record => {
+      if (!trendMap[record.date]) {
+        trendMap[record.date] = 0;
+      }
+      trendMap[record.date] += parseFloat(record.revenue || 0);
+    });
+
+    const trend = Object.keys(trendMap).map(date => ({
+      date,
+      revenue: parseFloat(trendMap[date]).toFixed(2),
+    }));
+
+    // Group by app for breakdown
+    const breakdownMap = {};
+    revenueData?.forEach(record => {
+      const appName = record.apps?.name || 'Unknown';
+      if (!breakdownMap[appName]) {
+        breakdownMap[appName] = 0;
+      }
+      breakdownMap[appName] += parseFloat(record.revenue || 0);
+    });
+
+    const breakdown = Object.keys(breakdownMap).map(appName => ({
+      appName,
+      revenue: parseFloat(breakdownMap[appName]).toFixed(2),
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total: parseFloat(total).toFixed(2),
+        breakdown,
+        trend,
+      }
+    });
+  } catch (error) {
+    console.error('Get revenue analytics error:', error);
+    next(error);
+  }
+};
+
+// @desc    Get recent activity (downloads and reviews) for developer apps
+// @route   GET /api/developers/recent-activity
+// @access  Private/Developer
+exports.getRecentActivity = async (req, res, next) => {
+  try {
+    const { limit = '20', type } = req.query; // type can be 'downloads', 'reviews', or 'all'
+    const activityLimit = parseInt(limit);
+
+    // Get all developer apps
+    const { data: apps, error: appsError } = await supabase
+      .from('apps')
+      .select('id, name, icon_url')
+      .eq('developer_id', req.user.id);
+
+    if (appsError) {
+      return next(new ErrorResponse('Error fetching developer apps', 500));
+    }
+
+    if (!apps || apps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          activities: [],
+          total: 0,
+        }
+      });
+    }
+
+    const appIds = apps.map(app => app.id);
+    const appMap = {};
+    apps.forEach(app => {
+      appMap[app.id] = { name: app.name, icon_url: app.icon_url };
+    });
+
+    let activities = [];
+
+    // Fetch recent downloads if type is 'downloads' or 'all'
+    if (!type || type === 'all' || type === 'downloads') {
+      const { data: downloads, error: downloadsError } = await supabase
+        .from('downloads')
+        .select(`
+          id,
+          app_id,
+          user_id,
+          version_downloaded,
+          downloaded_at,
+          users:user_id (
+            id,
+            email,
+            raw_user_meta_data
+          )
+        `)
+        .in('app_id', appIds)
+        .order('downloaded_at', { ascending: false })
+        .limit(activityLimit);
+
+      if (!downloadsError && downloads) {
+        downloads.forEach(download => {
+          activities.push({
+            id: download.id,
+            type: 'download',
+            app_id: download.app_id,
+            app_name: appMap[download.app_id]?.name || 'Unknown App',
+            app_icon: appMap[download.app_id]?.icon_url,
+            user_id: download.user_id,
+            user_name: download.users?.raw_user_meta_data?.name || download.users?.email || 'Unknown User',
+            user_email: download.users?.email,
+            version: download.version_downloaded,
+            timestamp: download.downloaded_at,
+            created_at: download.downloaded_at,
+          });
+        });
+      }
+    }
+
+    // Fetch recent reviews if type is 'reviews' or 'all'
+    if (!type || type === 'all' || type === 'reviews') {
+      const { data: reviews, error: reviewsError } = await supabase
+        .from('reviews')
+        .select(`
+          id,
+          app_id,
+          user_id,
+          rating,
+          comment,
+          created_at,
+          updated_at,
+          users:user_id (
+            id,
+            email,
+            raw_user_meta_data
+          )
+        `)
+        .in('app_id', appIds)
+        .eq('is_flagged', false)
+        .order('created_at', { ascending: false })
+        .limit(activityLimit);
+
+      if (!reviewsError && reviews) {
+        reviews.forEach(review => {
+          activities.push({
+            id: review.id,
+            type: 'review',
+            app_id: review.app_id,
+            app_name: appMap[review.app_id]?.name || 'Unknown App',
+            app_icon: appMap[review.app_id]?.icon_url,
+            user_id: review.user_id,
+            user_name: review.users?.raw_user_meta_data?.name || review.users?.email || 'Unknown User',
+            user_email: review.users?.email,
+            rating: review.rating,
+            comment: review.comment,
+            timestamp: review.created_at,
+            created_at: review.created_at,
+            updated_at: review.updated_at,
+          });
+        });
+      }
+    }
+
+    // Sort all activities by timestamp (most recent first)
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Limit the combined results
+    activities = activities.slice(0, activityLimit);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        activities,
+        total: activities.length,
+        filter: type || 'all',
+      }
+    });
+  } catch (error) {
+    console.error('Get recent activity error:', error);
+    next(error);
+  }
+};

@@ -137,73 +137,88 @@ exports.getApp = async (req, res, next) => {
 // @route   GET /api/apps/:id/download
 // @access  Private
 exports.downloadApp = async (req, res, next) => {
+  let app = null;
+
   try {
-    // Get app
-    const { data: app, error: appError } = await supabase
+    const appId = req.params.id;
+
+    // 1. Fetch the app
+    const { data, error: appError } = await supabase
       .from('apps')
-      .select('*')
-      .eq('id', req.params.id)
+      .select('id, name, file_path, version, downloads, status')
+      .eq('id', appId)
       .single();
 
-    if (appError || !app) {
-      return next(new ErrorResponse(`App not found with id of ${req.params.id}`, 404));
+    if (appError || !data) {
+      return next(new ErrorResponse('App not found', 404));
     }
 
-    // Check if user has already downloaded this app
-    const { data: existingDownload, error: downloadError } = await supabase
-      .from('downloads')
-      .select('*')
-      .eq('app_id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single();
+    app = data;
 
-    // If not, create a new download record
-    if (!existingDownload) {
-      const { error: createError } = await supabase
-        .from('downloads')
-        .insert([
-          {
-            app_id: req.params.id,
-            user_id: req.user.id,
-            downloaded_at: new Date().toISOString(),
-            version_downloaded: app.version
-          },
-        ]);
-
-      if (createError) {
-        return next(new ErrorResponse('Error recording download', 500));
-      }
-
-      // Increment download count
-      const { error: updateError } = await supabase
-        .from('apps')
-        .update({ downloads: (app.downloads || 0) + 1 })
-        .eq('id', req.params.id);
-
-      if (updateError) {
-        console.error('Error updating download count:', updateError);
-        // Don't fail the request if just the counter update fails
-      }
+    if (app.status !== 'published') {
+      return next(new ErrorResponse('App not available for download', 403));
     }
 
-    // Generate signed URL for download
-    const { data: signedUrl, error: urlError } = await supabase.storage
+    if (!app.file_path || app.file_path.trim() === '') {
+      return next(new ErrorResponse('App file missing', 404));
+    }
+
+    // 2. Generate signed URL FIRST (most important part)
+    const { data: signedData, error: urlError } = await supabase.storage
       .from('apps')
-      .createSignedUrl(app.file_path, 3600); // 1 hour expiration
+      .createSignedUrl(app.file_path.trim(), 3600); // 1 hour
 
-    if (urlError || !signedUrl) {
-      return next(new ErrorResponse('Error generating download URL', 500));
+    if (urlError || !signedData?.signedUrl) {
+      console.error('Signed URL generation failed:', urlError);
+      return next(new ErrorResponse('Failed to generate download link', 500));
     }
 
+    // 3. SUCCESS: Send download URL immediately
     res.status(200).json({
       success: true,
       data: {
-        downloadUrl: signedUrl.signedUrl,
+        downloadUrl: signedData.signedUrl,
         expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
       },
     });
+
+    // 4. AFTER response is sent, record download (fire and forget)
+    // This will NOT affect the response even if it fails
+    setImmediate(async () => {
+      try {
+        // Check if already downloaded
+        const { data: existing } = await supabase
+          .from('downloads')
+          .select('id')
+          .eq('app_id', appId)
+          .eq('user_id', req.user.id)
+          .maybeSingle();
+
+        if (!existing) {
+          // Record download
+          await supabase.from('downloads').insert({
+            app_id: appId,
+            user_id: req.user.id,
+            downloaded_at: new Date().toISOString(),
+            version_downloaded: app.version,
+          });
+
+          // Increment counter
+          await supabase
+            .from('apps')
+            .update({ downloads: (app.downloads || 0) + 1 })
+            .eq('id', appId);
+        }
+      } catch (recordError) {
+        console.warn('Non-critical: Failed to record download for analytics:', recordError.message);
+        // Do nothing — user already got the download link
+      }
+    });
+
   } catch (error) {
-    next(error);
+    console.error('Critical download error:', error);
+    // Only reach here if something before res.json() failed
+    next(new ErrorResponse('Download failed', 500));
   }
 };
 

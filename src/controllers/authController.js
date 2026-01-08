@@ -7,7 +7,7 @@ const WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
 const EMAIL_CONFIRM_REDIRECT_URL =
   process.env.EMAIL_CONFIRM_REDIRECT_URL || `${WEB_APP_URL}/auth/confirm`;
 const RESET_PASSWORD_REDIRECT_URL =
-  process.env.RESET_PASSWORD_REDIRECT_URL || `${WEB_APP_URL}/auth/reset-password`;
+  process.env.RESET_PASSWORD_REDIRECT_URL || `${WEB_APP_URL}/auth/magic-login`;
 const GOOGLE_OAUTH_REDIRECT_URL =
   process.env.GOOGLE_OAUTH_REDIRECT_URL || `${WEB_APP_URL}/auth/callback`;
 const OTP_LOGIN_REDIRECT_URL =

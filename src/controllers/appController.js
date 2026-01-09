@@ -136,91 +136,73 @@ exports.getApp = async (req, res, next) => {
 // @desc    Download app
 // @route   GET /api/apps/:id/download
 // @access  Private
-exports.downloadApp = async (req, res, next) => {
-  try {
-    const { id } = req.params;
+// controllers/appController.js
+// controllers/appController.js
 
-    // 1. Fetch app
+
+// @desc    Download app
+// @route   GET /api/apps/:id/download
+// @access  Private
+exports.downloadApp = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id; // from protect middleware
+
+  try {
+    // Fetch app from DB
     const { data: app, error: appError } = await supabase
       .from('apps')
-      .select('id, name, file_path, download_url, version, downloads, status')
+      .select('id, name, file_path, version')
       .eq('id', id)
       .single();
 
     if (appError || !app) {
-      return next(new ErrorResponse('App not found', 404));
+      return res.status(404).json({ success: false, message: 'App not found' });
     }
 
-    if (app.status !== 'published') {
-      return next(new ErrorResponse('App not available for download', 403));
+    if (!app.file_path) {
+      return res.status(404).json({ success: false, message: 'File missing' });
     }
 
-    // 2. Determine URL to send
-    let downloadLink = '';
+    // Generate signed URL
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from('apps')
+      .createSignedUrl(app.file_path, 3600); // 1 hour expiry
 
-    if (app.download_url) {
-      // Public file already has a URL
-      downloadLink = app.download_url;
-    } else if (app.file_path) {
-      // Generate signed URL from Supabase storage
-      const { data: signedData, error: urlError } = await supabase.storage
-        .from('apps')
-        .createSignedUrl(app.file_path.trim(), 3600);
-
-      if (urlError || !signedData?.signedUrl) {
-        console.error('Signed URL generation failed:', urlError);
-        return next(new ErrorResponse('Failed to generate download link', 500));
-      }
-
-      downloadLink = signedData.signedUrl;
-    } else {
-      return next(new ErrorResponse('No downloadable file available', 404));
+    if (signedError || !signedData?.signedUrl) {
+      console.error('Signed URL error:', signedError);
+      return res.status(500).json({ success: false, message: 'Failed to generate download link' });
     }
 
-    // 3. Return download URL
-    res.status(200).json({
+    // ✅ Record download
+    const { error: downloadError } = await supabase
+      .from('downloads')
+      .insert([
+        {
+          app_id: app.id,
+          user_id: userId,
+          downloaded_at: new Date().toISOString(),
+          version_downloaded: app.version || '1.0.0',
+          status: 'installed', // optional: installed or history
+        },
+      ]);
+
+    if (downloadError) {
+      console.error('Error recording download:', downloadError);
+      // Do not block user from downloading; just log
+    }
+
+    // ✅ Return download URL
+    res.json({
       success: true,
-      data: {
-        downloadUrl: downloadLink,
-        expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
-      },
+      data: { downloadUrl: signedData.signedUrl },
     });
-
-    // 4. Fire-and-forget: record download
-    if (req.user?.id) {
-      setImmediate(async () => {
-        try {
-          const { data: existing } = await supabase
-            .from('downloads')
-            .select('id')
-            .eq('app_id', id)
-            .eq('user_id', req.user.id)
-            .maybeSingle();
-
-          if (!existing) {
-            await supabase.from('downloads').insert({
-              app_id: id,
-              user_id: req.user.id,
-              downloaded_at: new Date().toISOString(),
-              version_downloaded: app.version,
-            });
-
-            await supabase
-              .from('apps')
-              .update({ downloads: (app.downloads || 0) + 1 })
-              .eq('id', id);
-          }
-        } catch (err) {
-          console.warn('Non-critical: failed to record download', err.message);
-        }
-      });
-    }
-
-  } catch (error) {
-    console.error('Critical download error:', error);
-    next(new ErrorResponse('Download failed', 500));
+  } catch (err) {
+    console.error('Download app error:', err);
+    res.status(500).json({ success: false, message: 'Failed to generate download link' });
   }
 };
+
+
 
 // @desc    Create app review
 // @route   POST /api/apps/:id/reviews
@@ -228,16 +210,16 @@ exports.downloadApp = async (req, res, next) => {
 exports.createAppReview = async (req, res, next) => {
   try {
     // Check if user has downloaded the app
-    const { data: download, error: downloadError } = await supabase
-      .from('downloads')
-      .select('*')
-      .eq('app_id', req.params.id)
-      .eq('user_id', req.user.id)
-      .single();
+   const { data: downloads, error: downloadError } = await supabase
+  .from('downloads')
+  .select('*')
+  .eq('app_id', req.params.id)
+  .eq('user_id', req.user.id);
 
-    if (downloadError || !download) {
-      return next(new ErrorResponse('You must download the app before reviewing', 400));
-    }
+if (downloadError || !downloads || downloads.length === 0) {
+  return next(new ErrorResponse('You must download the app before reviewing', 400));
+}
+
 
     // Check if user has already reviewed this app
     const { data: existingReview, error: reviewError } = await supabase
@@ -444,7 +426,7 @@ exports.getAppsByCategory = async (req, res, next) => {
     const { data: apps, error, count } = await supabase
       .from('apps')
       .select('*', { count: 'exact' })
-      .eq('category', category)
+.ilike('category', category)
       .eq('status', 'published')
       .order('average_rating', { ascending: false })
       .range(startIndex, endIndex - 1);

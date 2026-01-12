@@ -6,52 +6,83 @@ const { ErrorResponse } = require('../middleware/errorMiddleware');
 // @desc    Get all apps for the logged in developer
 // @route   GET /api/developer/apps
 // @access  Private/Developer
+// @desc    Get all apps for the logged in developer
+// @route   GET /api/developer/apps
+// @access  Private/Developer
 exports.getDeveloperApps = async (req, res, next) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
 
+    // First get the basic app data
     const { data: apps, error, count } = await supabase
       .from('apps')
-      .select('*', { count: 'exact' })
+      .select('id, name, version, status, average_rating, created_at, icon_url, screenshots, package_name, category, price, developer_id')
       .eq('developer_id', req.user.id)
       .order('created_at', { ascending: false })
-      .range(startIndex, endIndex - 1);
+      .range(startIndex, startIndex + limit - 1);
 
     if (error) {
       return next(new ErrorResponse('Error fetching developer apps', 500));
     }
 
-    // Pagination result
+    if (!apps || apps.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        pagination: { total: 0, totalPages: 0, currentPage: 1 },
+        data: [],
+      });
+    }
+
+    // Get actual download counts from the downloads table
+    const appIds = apps.map(app => app.id);
+
+    const { data: downloadCounts, error: downloadError } = await supabase
+      .from('downloads')
+      .select('app_id')
+      .in('app_id', appIds);
+
+    if (downloadError) {
+      console.error('Error fetching download counts:', downloadError);
+    }
+
+    // Create a map of app_id → download count
+    const downloadMap = {};
+    if (downloadCounts) {
+      downloadCounts.forEach(row => {
+        downloadMap[row.app_id] = (downloadMap[row.app_id] || 0) + 1;
+      });
+    }
+
+    // Attach real download count to each app
+    const appsWithDownloads = apps.map(app => ({
+      ...app,
+      downloads: downloadMap[app.id] || 0,
+    }));
+
+    // Pagination
     const pagination = {};
     const totalPages = Math.ceil(count / limit);
 
-    if (endIndex < count) {
-      pagination.next = {
-        page: page + 1,
-        limit,
-      };
+    if (page * limit < count) {
+      pagination.next = { page: page + 1, limit };
     }
-
-    if (startIndex > 0) {
-      pagination.prev = {
-        page: page - 1,
-        limit,
-      };
+    if (page > 1) {
+      pagination.prev = { page: page - 1, limit };
     }
 
     res.status(200).json({
       success: true,
-      count: apps.length,
+      count: appsWithDownloads.length,
       pagination: {
         ...pagination,
         total: count,
         totalPages,
         currentPage: page,
       },
-      data: apps,
+      data: appsWithDownloads,
     });
   } catch (error) {
     next(error);

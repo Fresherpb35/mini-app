@@ -361,12 +361,18 @@ exports.updateAppStatus = async (req, res, next) => {
   try {
     const { status, rejectionReason } = req.body;
 
-    const { data: app, error } = await supabase
+    if (!status) {
+      return next(new ErrorResponse('Status is required', 400));
+    }
+
+    const adminClient = getAdminClient(); // ✅ USE ADMIN CLIENT
+
+    const { data: app, error } = await adminClient
       .from('apps')
       .update({
         status,
-        rejection_reason: rejectionReason,
-        reviewed_at: new Date(),
+        rejection_reason: rejectionReason || null,
+        reviewed_at: new Date().toISOString(),
         reviewed_by: req.user.id,
       })
       .eq('id', req.params.id)
@@ -383,9 +389,11 @@ exports.updateAppStatus = async (req, res, next) => {
       data: app,
     });
   } catch (error) {
+    console.error('Update app status error:', error);
     next(error);
   }
 };
+
 
 // @desc    Update app (admin can edit any app)
 // @route   PUT /api/admin/apps/:id

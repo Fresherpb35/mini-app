@@ -360,6 +360,7 @@ exports.updatePassword = async (req, res, next) => {
 // @route   POST /api/auth/forgotpassword
 // @access  Public
 exports.forgotPassword = async (req, res, next) => {
+
   try {
     const { email } = req.body;
 
@@ -836,3 +837,6 @@ exports.uploadAvatar = async (req, res, next) => {
     next(error);
   }
 };
+
+
+

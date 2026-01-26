@@ -416,56 +416,24 @@ exports.getNewReleases = async (req, res, next) => {
 // @access  Public
 exports.getAppsByCategory = async (req, res, next) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
-    const { category } = req.params;
+    const category = req.params.category;
 
-    // Get apps by category
-    const { data: apps, error, count } = await supabase
+    const { data, error, count } = await supabase
       .from('apps')
-      .select('*', { count: 'exact' })
-.ilike('category', category)
+      .select('*')
+      .eq('category', category)
       .eq('status', 'published')
-      .order('average_rating', { ascending: false })
-      .range(startIndex, endIndex - 1);
+      .limit(20);
 
-    if (error) {
-      return next(new ErrorResponse('Error fetching apps by category', 500));
-    }
+    if (error) throw error;
 
-    // Pagination result
-    const pagination = {};
-    const totalPages = Math.ceil(count / limit);
-
-    if (endIndex < count) {
-      pagination.next = {
-        page: page + 1,
-        limit,
-      };
-    }
-
-    if (startIndex > 0) {
-      pagination.prev = {
-        page: page - 1,
-        limit,
-      };
-    }
-
-    res.status(200).json({
+    res.json({
       success: true,
-      count: apps.length,
-      pagination: {
-        ...pagination,
-        total: count,
-        totalPages,
-        currentPage: page,
-      },
-      data: apps,
+      count: count || data.length,
+      data
     });
-  } catch (error) {
-    next(error);
+  } catch (err) {
+    next(err);
   }
 };
 
